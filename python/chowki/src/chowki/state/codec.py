@@ -20,6 +20,8 @@ T = TypeVar("T", bound=msgspec.Struct)
 
 def encode_state(value: JSONValue) -> bytes:
     """Encode state value to MessagePack bytes."""
+    if isinstance(value, (set, frozenset)):
+        raise TypeError("Object of type set is not JSON serializable")
     return _ENCODER.encode(value)
 
 

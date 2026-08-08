@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 
 import pytest
 
@@ -20,6 +21,11 @@ from chowki.types import SCHEMA_VERSION, SnapshotEnvelope, SnapshotKind
 def test_msgpack_roundtrip_preserves_value() -> None:
     state = {"messages": [{"role": "user", "content": "hi"}], "n": 3, "f": 1.5, "b": True}
     assert decode_state(encode_state(state)) == state
+
+
+def test_encode_state_rejects_set() -> None:
+    with pytest.raises(TypeError, match="set is not JSON serializable"):
+        encode_state(cast(Any, {1, 2, 3}))
 
 
 def test_msgpack_is_smaller_than_json() -> None:
