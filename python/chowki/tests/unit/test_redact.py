@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import assume, given
+from hypothesis import given
 from hypothesis import strategies as st
 
 from chowki.state.redact import PLACEHOLDER_RE, Redactor
@@ -102,7 +102,6 @@ def test_dict_keys_are_also_scanned(redactor: Redactor) -> None:
 
 @given(st.text(max_size=200))
 def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
-    assume(not payload or not payload[-1].isalpha())
     r = Redactor(hmac_key=KEY)
     hostile = payload + SECRETS["openai"] + payload
     out = r.redact_text(hostile)
