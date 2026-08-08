@@ -379,18 +379,18 @@ mypy_path = "python/chowki/src"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["python/chowki/tests"]
-addopts = "--strict-markers --benchmark-disable"
+testpaths = ["python/chowki/tests/unit", "python/chowki/tests/integration"]
+addopts = "--strict-markers"
 markers = [
     "benchmark: performance budget test; run with --benchmark-only",
     "integration: requires a storage backend",
 ]
 ```
 
-   Rationale for `--benchmark-disable` in `addopts`: benchmark tests must not slow the
-   default unit run; the benchmark command in the Context table overrides it with
-   `--benchmark-only`. `S105`/`S106` are ignored in tests because Task 7's redaction
-   tests contain hard-coded fake credentials by design.
+   Rationale for `addopts` and `testpaths`: `testpaths` narrows default pytest runs to unit and
+   integration tests so benchmark tests do not slow default test runs; `addopts` omits
+   `--benchmark-disable` to avoid option conflicts when running `--benchmark-only`. `S105`/`S106`
+   are ignored in tests because Task 7's redaction tests contain hard-coded fake credentials by design.
 
 2. `python/chowki/pyproject.toml`:
 
@@ -437,10 +437,7 @@ source = "vcs"
 version-file = "src/chowki/_version.py"
 ```
 
-   **UNVERIFIED — executor must confirm:** `hatch-vcs` requires at least one git tag or a
-   fallback. If `uv sync` fails with "unable to determine version", add
-   `[tool.hatch.version] fallback-version = "0.1.0"` (or create tag `v0.0.0`) and record
-   which was used. `src/chowki/_version.py` must be added to `.gitignore`.
+   **UNVERIFIED — executor confirmed:** `hatch-vcs` requires a fallback version in this repo; `fallback-version = "0.1.0"` was added under `[tool.hatch.version]` in `python/chowki/pyproject.toml`. `src/chowki/_version.py` is added to `.gitignore`. Note: `py.typed` contains a single newline (`\n`, 1 byte) to satisfy `check_layout.py` trailing-newline rule.
 
 3. `pyrightconfig.json`:
 
