@@ -42,7 +42,6 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
 _HAS_INDICATOR: Final = re.compile(
     r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|Bearer|Basic|://", re.IGNORECASE
 )
-_HAS_DIGIT: Final = re.compile(r"\d")
 
 _SENSITIVE_KEY: Final = re.compile(
     r"(?i)(api[_-]?key|secret|token|password|passwd|auth(?:orization)?|credential|private[_-]?key|access[_-]?key)"
@@ -73,7 +72,7 @@ def _is_safe(token: str) -> bool:
         return True
     if "/" in token or "\\" in token:
         return True
-    if not _HAS_DIGIT.search(token):
+    if _PROSE_RE.match(token) is not None:
         return True
     if _is_number(token):
         return True
@@ -159,16 +158,15 @@ class Redactor:
             working_text = text
 
         has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(working_text) is not None)
-        has_digit = _HAS_DIGIT.search(working_text) is not None
 
-        if not has_ind and not has_digit:
+        if not has_ind and not self.enable_entropy:
             res = working_text
         else:
             res = working_text
             if has_ind:
                 res = self._combined_re.sub(self._sub_layer1, res)
 
-            if self.enable_entropy and has_digit:
+            if self.enable_entropy:
                 if len(res) > self.entropy_max_scan_bytes:
                     logger.debug(
                         "redact_entropy_skipped_large_string",

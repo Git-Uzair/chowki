@@ -55,6 +55,13 @@ def test_high_entropy_unknown_token_is_redacted(redactor: Redactor) -> None:
     assert unknown not in out
 
 
+def test_high_entropy_symbol_token_without_digits_is_redacted(redactor: Redactor) -> None:
+    unknown = "aB+cD=eF#gH$jK%mL&nP*qR@sT"
+    out = redactor.redact_text(f"token={unknown}")
+    assert unknown not in out
+    assert PLACEHOLDER_RE.search(out) is not None
+
+
 @pytest.mark.parametrize(
     "safe",
     [

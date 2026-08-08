@@ -11,7 +11,12 @@ from chowki.state.redact import Redactor
 
 def _one_mib_state() -> dict[str, object]:
     """~1 MiB of realistic agent state: a long message history, no secrets."""
-    message = {"role": "assistant", "content": "The analysis shows a stable trend. " * 12}
+    message = {
+        "role": "assistant",
+        "content": (
+            "The analysis for step 2026-08-08 shows a stable trend with status code 200. " * 10
+        ),
+    }
     unit = len(json.dumps(message).encode())
     return {"messages": [dict(message) for _ in range(1_048_576 // unit)]}
 
