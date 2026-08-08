@@ -124,9 +124,24 @@ def test_false_positive_words_not_redacted(redactor: Redactor) -> None:
     assert redactor.redact_text("MyBearer") == "MyBearer"
 
 
-def test_bearer_and_basic_prose_words_not_redacted(redactor: Redactor) -> None:
-    t1 = "Use Bearer authentication for the API"
-    t2 = "Configure Basic authentication settings today"
+@pytest.mark.parametrize(
+    "token",
+    [
+        "Bearer abcdefghijklmnopqrst",
+        "Bearer abcdef.ghijkl.mnopqrs",
+        "Bearer abcdefghijklmnop1234==",
+        "Basic abcdefghijklmnop1234==",
+    ],
+)
+def test_bearer_and_basic_tokens_are_redacted(redactor: Redactor, token: str) -> None:
+    out = redactor.redact_text(f"Authorization: {token}")
+    assert token not in out
+    assert PLACEHOLDER_RE.search(out) is not None
+
+
+def test_bearer_and_basic_short_prose_words_not_redacted(redactor: Redactor) -> None:
+    t1 = "Use Bearer token for the API"
+    t2 = "Configure Basic auth settings today"
     assert redactor.redact_text(t1) == t1
     assert redactor.redact_text(t2) == t2
 
@@ -169,7 +184,7 @@ def test_punctuation_preceding_secret_is_redacted(redactor: Redactor) -> None:
     out = redactor.redact_text(secret)
     assert "sk-A1b2C3d4E5f6G7h8I9j00" not in out
 
-    aws = "1AKIAIOSFODNN7EXAMPLE"
+    aws = ":AKIAIOSFODNN7EXAMPLE"
     out_aws = redactor.redact_text(aws)
     assert "AKIAIOSFODNN7EXAMPLE" not in out_aws
 
