@@ -18,6 +18,7 @@ STEPS: list[tuple[str, list[str]]] = [
     ("pyright", ["uv", "run", "pyright"]),
     ("mypy", ["uv", "run", "mypy", "python/chowki/src"]),
     ("unit", ["uv", "run", "pytest", "python/chowki/tests/unit", "-q"]),
+    ("integration", ["uv", "run", "pytest", "python/chowki/tests/integration", "-q"]),
     (
         "benchmarks",
         ["uv", "run", "pytest", "python/chowki/tests/benchmarks", "--benchmark-only", "-q"],
