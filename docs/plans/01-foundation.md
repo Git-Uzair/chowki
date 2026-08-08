@@ -584,7 +584,13 @@ REFERENCE_STATE_BYTES: Final = 1_048_576
 BUDGETS: Final[dict[str, float]] = {
     # --- Per-step snapshot pipeline, 1 MiB state (total must be < 2.0 ms) ---
     "redaction_1mb_ms": 0.8,
-    "encode_1mb_ms": 0.3,
+    # The research figure is 0.3 ms for msgspec's *Struct* encoder. The 1 MiB gate
+    # encodes an untyped dict tree through the slower generic path, and the dev-box
+    # median for it is bimodal (~0.20 ms or ~0.45 ms depending on where the OS places
+    # the process) — see docs/plans/01-foundation.md, Task 8 executor note. Gate raised
+    # to 0.5 ms to sit above the slow mode; snapshot_total_1mb_ms remains the binding
+    # 2.0 ms end-to-end claim, so component gates no longer sum to it.
+    "encode_1mb_ms": 0.5,
     "canonical_hash_1mb_ms": 0.3,
     "encrypt_1mb_ms": 0.4,
     "dispatch_ms": 0.2,
@@ -2111,11 +2117,39 @@ def migrate(payload: dict[str, Any], *, from_version: int, to_version: int) -> d
 **Done when:**
 - `uv run pytest python/chowki/tests/unit/test_codec.py -q` → all pass.
 - `uv run pytest python/chowki/tests/benchmarks --benchmark-only -q` →
-  `test_encode_1mib_within_budget` median under 0.45 ms (0.3 × 1.5).
+  `test_encode_1mib_within_budget` median under 0.75 ms (0.5 × 1.5). See the executor
+  note below for why the gate is 0.5 ms and not the 0.3 ms research figure.
 - `MIGRATIONS` is empty after the full unit run (add a final assertion in
   `conftest.py` if flakiness appears: registry pollution between tests is the likeliest
   cross-test failure here).
 - Committed as `feat(chowki): msgpack codec, snapshot envelope, migration registry`.
+
+**Executor note — `encode_1mb_ms` raised from 0.3 ms to 0.5 ms:**
+
+- `encode_state` must stay `return _ENCODER.encode(value)` with no runtime type guard.
+  `JSONValue` plus `pyright`/`mypy` in strict mode are the contract: `set` is not a
+  `JSONValue`, so passing one is a static error at the call site, not a runtime concern.
+  A shallow `isinstance` guard is theatre (msgspec still encodes nested sets as arrays)
+  and a deep guard is a full O(n) traversal of the state on the hottest path in the
+  library, which costs more than the encode itself. Non-negotiable: never add GC
+  manipulation (`gc.collect()`, `gc.disable()`) or `order="deterministic"` to make this
+  benchmark green — both were tried and rejected, the first as measurement bias and the
+  second as a real slowdown to ~1.09 ms.
+- The 0.3 ms research figure (`00-synthesis.md:173`, `02-serialization.md:367`) is for
+  the **msgspec C Struct encoder**. This benchmark deliberately encodes an *untyped*
+  1 MiB `dict` of 2,400 nested dicts, which takes msgspec's generic path with per-key
+  runtime type dispatch, so the two numbers are not measuring the same thing.
+- Measured on the dev box (Ryzen 7000-series, Windows, CPython 3.13), 10 consecutive
+  isolated runs of the benchmark produced medians of 0.207, 0.207, 0.402, 0.411, 0.441,
+  0.442, 0.456, 0.467, 0.472, 0.721 ms. The distribution is **bimodal per process**
+  (per-run `min` is either ~0.19 ms or ~0.42 ms, never in between) and constant within
+  a process — i.e. it tracks where the OS scheduler places the process, not anything the
+  code does. Against the old 0.45 ms limit this failed roughly 1 run in 8.
+- 0.5 ms base (0.75 ms allowed at the 1.5 tolerance) clears the slow mode with margin
+  while still catching a real regression, which would move the fast mode too.
+- `snapshot_total_1mb_ms` stays at the normative 2.0 ms. The per-component gates
+  therefore now sum to 2.2 ms rather than exactly 2.0 ms; the end-to-end 2.0 ms gate is
+  the binding product claim, and the component numbers are individual ceilings.
 
 ---
 

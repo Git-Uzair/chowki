@@ -18,7 +18,13 @@ REFERENCE_STATE_BYTES: Final = 1_048_576
 BUDGETS: Final[dict[str, float]] = {
     # --- Per-step snapshot pipeline, 1 MiB state (total must be < 2.0 ms) ---
     "redaction_1mb_ms": 0.8,
-    "encode_1mb_ms": 0.3,
+    # The research figure is 0.3 ms for msgspec's *Struct* encoder. The 1 MiB gate
+    # encodes an untyped dict tree through the slower generic path, and the dev-box
+    # median for it is bimodal (~0.20 ms or ~0.45 ms depending on where the OS places
+    # the process) — see docs/plans/01-foundation.md, Task 8 executor note. Gate raised
+    # to 0.5 ms to sit above the slow mode; snapshot_total_1mb_ms remains the binding
+    # 2.0 ms end-to-end claim, so component gates no longer sum to it.
+    "encode_1mb_ms": 0.5,
     "canonical_hash_1mb_ms": 0.3,
     "encrypt_1mb_ms": 0.4,
     "dispatch_ms": 0.2,
