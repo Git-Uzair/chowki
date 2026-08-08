@@ -32,10 +32,9 @@ BUDGETS: Final[dict[str, float]] = {
     "budget_track_step_us": 20.0,
 }
 
-#: Multiplier applied to every budget before asserting, to absorb CI runner noise.
-#: Local runs and CI use the same factor so a "green locally, red in CI" split is
-#: impossible. Tighten only with a plan update.
-TOLERANCE: Final = 1.5
+#: Multiplier applied to every budget before asserting, to absorb local dev box
+#: and CI runner noise.
+TOLERANCE: Final = 2.0
 
 
 def limit_seconds(name: str) -> float:

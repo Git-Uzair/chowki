@@ -29,7 +29,7 @@ _PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
     ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
     ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
+    ("openai", r"(?<![a-zA-Z])sk-[A-Za-z0-9\-_]{20,}"),
     ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
     ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
@@ -130,7 +130,7 @@ class Redactor:
         self.enable_entropy = enable_entropy
         self.entropy_max_scan_bytes = entropy_max_scan_bytes
         self._has_extra_patterns = bool(extra_patterns)
-        self._safe_text_cache: dict[str, str] = {}
+        self._safe_text_cache: dict[tuple[str, bool], str] = {}
 
         if extra_patterns:
             patterns: list[tuple[str, str]] = list(_PATTERNS)
@@ -166,7 +166,8 @@ class Redactor:
         if len(text) < 8:
             return text
 
-        cached = self._safe_text_cache.get(text)
+        cache_key = (text, self.enable_entropy)
+        cached = self._safe_text_cache.get(cache_key)
         if cached is not None:
             return cached
 
@@ -185,10 +186,7 @@ class Redactor:
         else:
             working_text = text
 
-        has_ind = self._has_extra_patterns or (
-            any(ind in working_text for ind in _INDICATOR_TUPLE)
-            and (_HAS_INDICATOR.search(working_text) is not None)
-        )
+        has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(working_text) is not None)
         res = self._combined_re.sub(self._sub_layer1, working_text) if has_ind else working_text
 
         if self.enable_entropy:
@@ -198,9 +196,7 @@ class Redactor:
                     length=len(res),
                     max_bytes=self.entropy_max_scan_bytes,
                 )
-            elif not any(d in res for d in _DIGITS_TUPLE):
-                pass
-            elif _CANDIDATE.search(res) is not None:
+            elif _HAS_DIGIT.search(res) is not None and _CANDIDATE.search(res) is not None:
                 res = _CANDIDATE.sub(self._sub_layer2, res)
 
         if placeholders and nonce is not None:
@@ -209,7 +205,7 @@ class Redactor:
 
         # Cache ONLY if NO secrets were found in the text
         if res == text and len(self._safe_text_cache) < 10_000:
-            self._safe_text_cache[text] = text
+            self._safe_text_cache[cache_key] = text
 
         return res
 
@@ -218,9 +214,9 @@ class Redactor:
             new_dict: dict[Any, Any] = {}
             dict_items: Any = value  # pyright: ignore[reportUnknownVariableType]
             for k, v in dict_items.items():
-                if type(k) is str and k in _SAFE_KEYS:
+                if isinstance(k, str) and k in _SAFE_KEYS:
                     new_k: Any = k
-                elif type(k) is str:
+                elif isinstance(k, str):
                     new_k = self.redact_text(k) if len(k) >= 8 else k
                     if len(k) >= 3 and _SENSITIVE_KEY.search(k):
                         new_dict[new_k] = self.placeholder("key_name", str(v))
@@ -228,11 +224,11 @@ class Redactor:
                 else:
                     new_k = self.redact(k)
 
-                if type(v) is str:
+                if isinstance(v, str):
                     new_dict[new_k] = (
                         v if (len(v) < 8 or v in _SAFE_VALUES) else self.redact_text(v)
                     )
-                elif type(v) in _CONTAINER_TYPES:
+                elif isinstance(v, _CONTAINER_TYPES):
                     new_dict[new_k] = self.redact(v)
                 else:
                     new_dict[new_k] = v
