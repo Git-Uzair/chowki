@@ -10,7 +10,7 @@ from chowki.state.redact import PLACEHOLDER_RE, Redactor
 KEY = b"unit-test-hmac-key"
 
 SECRETS = {
-    "openai": "sk-" + "A1b2C3d4E5f6G7h8I9j0",
+    "openai": "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4",
     "openai_project": "sk-proj-" + "x" * 45,
     "anthropic": "sk-ant-" + "y" * 45,
     "aws_access": "AKIAIOSFODNN7EXAMPLE",
@@ -99,6 +99,12 @@ def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
     hostile = f"{payload} {SECRETS['openai']} {payload}"
     out = r.redact_text(hostile)
     assert SECRETS["openai"] not in out
+
+
+def test_hostile_placeholder_injection(redactor: Redactor) -> None:
+    text = "[REDACTED:aa:0123abcd] \x00PH_9\x00 tail"
+    out = redactor.redact_text(text)
+    assert out == text
 
 
 def test_redaction_cannot_be_disabled() -> None:

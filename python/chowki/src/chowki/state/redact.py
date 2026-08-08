@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import math
 import re
+import uuid
 from collections import Counter
 from collections.abc import Sequence
 from typing import Any, Final, cast
@@ -16,7 +17,8 @@ logger = structlog.get_logger()
 __all__ = ["PLACEHOLDER_RE", "Redactor"]
 
 PLACEHOLDER_RE: Final = re.compile(r"\[REDACTED:[a-z0-9_]+:[0-9a-f]{8}\]")
-_UNMASK_RE: Final = re.compile(r"\x00PH_(\d+)\x00")
+
+_PROSE_RE: Final = re.compile(r"^[A-Za-z. ,!?'\"\n\r\t]+$")
 
 _PATTERNS: tuple[tuple[str, str], ...] = (
     (
@@ -37,33 +39,24 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
-_INDICATORS: Final = (
-    "-----",
-    "eyJ",
-    "sk-",
-    "sk_",
-    "pk_",
-    "AKIA",
-    "ASIA",
-    "aws_secret",
-    "ghp_",
-    "xox",
-    "Bearer",
-    "Basic",
-    "://",
+_HAS_INDICATOR: Final = re.compile(
+    r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|Bearer|Basic|://"
 )
+_HAS_DIGIT: Final = re.compile(r"\d")
 
-_DIGITS: Final = ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+_INDICATOR_CHAR_SET: Final = frozenset("-_:0123456789/=")
 
 _SENSITIVE_KEY: Final = re.compile(
     r"(?i)(api[_-]?key|secret|token|password|passwd|auth(?:orization)?|credential|private[_-]?key|access[_-]?key)"
+)
+_SAFE_KEYS: Final = frozenset(
+    {"role", "content", "messages", "type", "name", "id", "text", "user", "system", "assistant"}
 )
 
 _UUID_RE: Final = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 _HEX_RE: Final = re.compile(r"^[0-9a-fA-F]+$")
-_HAS_DIGIT: Final = re.compile(r"\d")
 _CANDIDATE: Final = re.compile(r"[A-Za-z0-9+/=_\-.!@#$%&*]{12,}")
 
 
@@ -114,8 +107,7 @@ class Redactor:
         self.enable_entropy = enable_entropy
         self.entropy_max_scan_bytes = entropy_max_scan_bytes
         self._has_extra_patterns = bool(extra_patterns)
-        self._sensitive_cache: dict[str, bool] = {}
-        self._text_cache: dict[str, str] = {}
+        self._safe_text_cache: dict[str, str] = {}
 
         patterns: list[tuple[str, str]] = list(_PATTERNS)
         if extra_patterns:
@@ -149,86 +141,52 @@ class Redactor:
         if len(text) < 8:
             return text
 
-        cached = self._text_cache.get(text)
+        cached = self._safe_text_cache.get(text)
         if cached is not None:
             return cached
 
         placeholders: list[str] = []
-        if PLACEHOLDER_RE.search(text):
+        nonce: str | None = None
+        if "[REDACTED:" in text and PLACEHOLDER_RE.search(text):
+            nonce = uuid.uuid4().hex
+            prefix = f"\x00PH_{nonce}_"
 
             def _mask_ph(m: re.Match[str]) -> str:
                 idx = len(placeholders)
                 placeholders.append(m.group(0))
-                return f"\x00PH_{idx}\x00"
+                return f"{prefix}{idx}\x00"
 
             working_text = PLACEHOLDER_RE.sub(_mask_ph, text)
         else:
             working_text = text
 
-        if not self._has_extra_patterns and not (
-            "-" in working_text
-            or "_" in working_text
-            or ":" in working_text
-            or "/" in working_text
-            or "=" in working_text
-            or "0" in working_text
-            or "1" in working_text
-            or "2" in working_text
-            or "3" in working_text
-            or "4" in working_text
-            or "5" in working_text
-            or "6" in working_text
-            or "7" in working_text
-            or "8" in working_text
-            or "9" in working_text
-            or "Bearer" in working_text
-            or "Basic" in working_text
-            or "AKIA" in working_text
-            or "ASIA" in working_text
-            or "xox" in working_text
-            or "eyJ" in working_text
-        ):
+        if not self._has_extra_patterns and not (set(working_text) & _INDICATOR_CHAR_SET):
             res = working_text
-            if placeholders:
-                res = _UNMASK_RE.sub(lambda m: placeholders[int(m.group(1))], res)
-            if len(self._text_cache) < 10_000:
-                self._text_cache[text] = res
-            return res
+        else:
+            has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(working_text) is not None)
+            has_digit = _HAS_DIGIT.search(working_text) is not None
 
-        has_ind = self._has_extra_patterns or any(ind in working_text for ind in _INDICATORS)
-        has_digit = any(d in working_text for d in _DIGITS)
-
-        # Short-circuit if no indicators for Layer 1 and no digits for Layer 2
-        if not has_ind and not has_digit:
             res = working_text
-            if placeholders:
-                res = _UNMASK_RE.sub(lambda m: placeholders[int(m.group(1))], res)
-            if len(self._text_cache) < 10_000:
-                self._text_cache[text] = res
-            return res
+            if has_ind:
+                res = self._combined_re.sub(self._sub_layer1, res)
 
-        res = working_text
+            if self.enable_entropy and has_digit:
+                if len(res) > self.entropy_max_scan_bytes:
+                    logger.debug(
+                        "redact_entropy_skipped_large_string",
+                        length=len(res),
+                        max_bytes=self.entropy_max_scan_bytes,
+                    )
+                else:
+                    res = _CANDIDATE.sub(self._sub_layer2, res)
 
-        # Layer 1: Compiled combined regex pass
-        if has_ind:
-            res = self._combined_re.sub(self._sub_layer1, res)
+        if placeholders and nonce is not None:
+            unmask_re = re.compile(rf"\x00PH_{nonce}_(\d+)\x00")
+            res = unmask_re.sub(lambda m: placeholders[int(m.group(1))], res)
 
-        # Layer 2: Entropy scan
-        if self.enable_entropy and has_digit:
-            if len(res) > self.entropy_max_scan_bytes:
-                logger.debug(
-                    "redact_entropy_skipped_large_string",
-                    length=len(res),
-                    max_bytes=self.entropy_max_scan_bytes,
-                )
-            else:
-                res = _CANDIDATE.sub(self._sub_layer2, res)
-
-        if placeholders:
-            res = _UNMASK_RE.sub(lambda m: placeholders[int(m.group(1))], res)
-
-        if len(self._text_cache) < 10_000:
-            self._text_cache[text] = res
+        # Only cache strings that contain NO redacted secrets
+        if res == text and len(self._safe_text_cache) < 10_000:
+            self._safe_text_cache[text] = res
 
         return res
 
@@ -236,35 +194,26 @@ class Redactor:
         if isinstance(value, str):
             if len(value) < 8:
                 return value
-            cached = self._text_cache.get(value)
-            if cached is not None:
-                return cached
-            return self.redact_text(value)
+            cached = self._safe_text_cache.get(value)
+            return cached if cached is not None else self.redact_text(value)
 
         if isinstance(value, dict):
-            text_cache = self._text_cache
-            sensitive_cache = self._sensitive_cache
-            dict_items: dict[Any, Any] = cast(Any, value)
+            dict_items = cast(Any, value)
             new_dict: dict[Any, Any] = {}
+            safe_cache = self._safe_text_cache
             for k, v in dict_items.items():
                 if isinstance(k, str):
-                    if len(k) < 8:
+                    if k in _SAFE_KEYS:
                         new_k = k
                     else:
-                        cached_k = text_cache.get(k)
+                        cached_k = safe_cache.get(k)
                         new_k = cached_k if cached_k is not None else self.redact_text(k)
-                    is_sens = sensitive_cache.get(k)
-                    if is_sens is None:
-                        is_sens = bool(_SENSITIVE_KEY.search(k)) if len(k) >= 4 else False
-                        if len(sensitive_cache) < 1_000:
-                            sensitive_cache[k] = is_sens
-
-                    if is_sens:
-                        if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
-                            new_dict[new_k] = v
-                        else:
-                            new_dict[new_k] = self.placeholder("key_name", str(v))
-                        continue
+                        if _SENSITIVE_KEY.search(k) if len(k) >= 3 else False:
+                            if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
+                                new_dict[new_k] = v
+                            else:
+                                new_dict[new_k] = self.placeholder("key_name", str(v))
+                            continue
                 else:
                     new_k = self.redact(k)
 
@@ -272,7 +221,7 @@ class Redactor:
                     if len(v) < 8:
                         new_dict[new_k] = v
                     else:
-                        cached_v = text_cache.get(v)
+                        cached_v = safe_cache.get(v)
                         new_dict[new_k] = cached_v if cached_v is not None else self.redact_text(v)
                 elif isinstance(v, (dict, list, tuple)):
                     new_dict[new_k] = self.redact(v)
