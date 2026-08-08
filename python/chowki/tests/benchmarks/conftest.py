@@ -25,12 +25,25 @@ def assert_budget() -> Callable[[Any, str], None]:
     def _assert(benchmark: Any, name: str) -> None:
         if name not in BUDGETS:
             raise KeyError(f"unknown chowki budget: {name!r}")
-        if getattr(benchmark, "disabled", False) or getattr(benchmark, "stats", None) is None:
+        if getattr(benchmark, "disabled", False):
             return
-        stats = getattr(benchmark.stats, "stats", None)
-        if stats is None or getattr(stats, "median", None) is None:
-            return
-        median = float(stats.median)
+
+        bench_stats = getattr(benchmark, "stats", None)
+        if bench_stats is None:
+            raise RuntimeError(
+                f"Cannot assert budget {name!r}: benchmark.stats is missing. "
+                "Ensure benchmark(...) was called before assert_budget()."
+            )
+
+        stats = getattr(bench_stats, "stats", None)
+        if stats is None:
+            raise RuntimeError(f"Cannot assert budget {name!r}: benchmark.stats.stats is missing.")
+
+        median_val = getattr(stats, "median", None)
+        if median_val is None:
+            raise RuntimeError(f"Cannot assert budget {name!r}: benchmark stats median is missing.")
+
+        median = float(median_val)
         allowed = limit_seconds(name)
         assert median <= allowed, (
             f"chowki budget breach: {name} median={median * 1000:.3f} ms "

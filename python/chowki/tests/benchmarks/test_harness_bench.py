@@ -10,7 +10,7 @@ from budgets import BUDGETS
 
 
 @pytest.mark.benchmark
-def test_budget_registry_is_complete() -> None:
+def test_budget_registry_is_complete(benchmark: Any) -> None:
     """Every hot-path budget named in docs/plans/01-foundation.md must be registered."""
     required = {
         "redaction_1mb_ms",
@@ -25,6 +25,7 @@ def test_budget_registry_is_complete() -> None:
         "loop_detect_step_us",
         "budget_track_step_us",
     }
+    benchmark(lambda: None)
     assert required <= set(BUDGETS)
 
 
