@@ -114,7 +114,11 @@ def main() -> int:
         if path.resolve() == script_path:
             continue
 
-        if path.name.startswith(".coverage") or path.name == ".DS_Store":
+        if (
+            path.name == ".coverage"
+            or path.name.startswith(".coverage.")
+            or path.name == ".DS_Store"
+        ):
             continue
 
         if BANNED_WORD in str(rel_path).lower():

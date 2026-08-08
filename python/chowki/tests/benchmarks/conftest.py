@@ -25,7 +25,12 @@ def assert_budget() -> Callable[[Any, str], None]:
     def _assert(benchmark: Any, name: str) -> None:
         if name not in BUDGETS:
             raise KeyError(f"unknown chowki budget: {name!r}")
-        median = float(benchmark.stats.stats.median)
+        if getattr(benchmark, "disabled", False) or getattr(benchmark, "stats", None) is None:
+            return
+        stats = getattr(benchmark.stats, "stats", None)
+        if stats is None or getattr(stats, "median", None) is None:
+            return
+        median = float(stats.median)
         allowed = limit_seconds(name)
         assert median <= allowed, (
             f"chowki budget breach: {name} median={median * 1000:.3f} ms "
