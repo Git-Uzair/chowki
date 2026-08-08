@@ -219,3 +219,27 @@ def test_short_string_uri_userinfo_redaction(redactor: Redactor) -> None:
     out = redactor.redact_text("http://u:p1@x")
     assert "u:p1" not in out
     assert PLACEHOLDER_RE.search(out) is not None
+
+
+def test_redact_handles_lone_surrogates(redactor: Redactor) -> None:
+    dict_out = redactor.redact({"api_key": "\ud800"})
+    assert isinstance(dict_out["api_key"], str)
+    text_out = redactor.redact_text("http://\ud800aa:pw1234@host")
+    assert isinstance(text_out, str)
+
+
+def test_re_redact_is_idempotent(redactor: Redactor) -> None:
+    a = redactor.redact({"api_key": "my-secret-key"})
+    b = redactor.redact(a)
+    assert a == b
+
+
+def test_cache_key_includes_entropy_params() -> None:
+    r = Redactor(hmac_key=KEY, entropy_threshold=4.5)
+    text = "abcdef123456gh"
+    res1 = r.redact_text(text)
+    assert res1 == text
+    r.entropy_threshold = 3.0
+    res2 = r.redact_text(text)
+    assert res2 != text
+    assert PLACEHOLDER_RE.search(res2) is not None

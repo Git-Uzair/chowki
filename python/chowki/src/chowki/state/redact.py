@@ -19,7 +19,6 @@ __all__ = ["PLACEHOLDER_RE", "Redactor"]
 PLACEHOLDER_RE: Final = re.compile(r"\[REDACTED:[a-z0-9_]+:[0-9a-f]{8}\]")
 
 _HAS_DIGIT: Final = re.compile(r"\d")
-_DIGITS_TUPLE: Final = ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
 
 _PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     (
@@ -29,7 +28,7 @@ _PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
     ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
     ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"(?<![a-zA-Z])sk-[A-Za-z0-9\-_]{20,}"),
+    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
     ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
     ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
@@ -55,28 +54,11 @@ _SAFE_KEYS: Final = frozenset(
 _SAFE_VALUES: Final = frozenset(
     {"user", "assistant", "system", "tool", "function", "pending", "running", "completed", "failed"}
 )
-_INDICATOR_TUPLE: Final = (
-    "-----",
-    "eyJ",
-    "sk-",
-    "sk_",
-    "pk_",
-    "AKIA",
-    "ASIA",
-    "aws_secret",
-    "ghp_",
-    "xox",
-    "Bearer",
-    "Basic",
-    "://",
-)
 
 _UUID_RE: Final = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 _HEX_RE: Final = re.compile(r"^[0-9a-fA-F]+$")
-_CANDIDATE: Final = re.compile(r"[A-Za-z0-9+/=_\-.!@#$%&*]{12,}")
-
 
 _CONTAINER_TYPES: Final = (dict, list, tuple)
 
@@ -125,12 +107,13 @@ class Redactor:
         extra_patterns: Sequence[tuple[str, str]] = (),
     ) -> None:
         self._hmac_key = hmac_key
-        self.entropy_threshold = entropy_threshold
-        self.min_token_len = min_token_len
+        self._entropy_threshold = entropy_threshold
+        self._min_token_len = min_token_len
+        self._update_candidate_re()
         self.enable_entropy = enable_entropy
         self.entropy_max_scan_bytes = entropy_max_scan_bytes
         self._has_extra_patterns = bool(extra_patterns)
-        self._safe_text_cache: dict[tuple[str, bool], str] = {}
+        self._safe_text_cache: dict[tuple[str, bool, float, int, bytes], str] = {}
 
         if extra_patterns:
             patterns: list[tuple[str, str]] = list(_PATTERNS)
@@ -142,8 +125,33 @@ class Redactor:
         else:
             self._combined_re = _DEFAULT_COMBINED_RE
 
+    @property
+    def entropy_threshold(self) -> float:
+        return self._entropy_threshold
+
+    @entropy_threshold.setter
+    def entropy_threshold(self, value: float) -> None:
+        self._entropy_threshold = value
+        self._update_candidate_re()
+
+    @property
+    def min_token_len(self) -> int:
+        return self._min_token_len
+
+    @min_token_len.setter
+    def min_token_len(self, value: int) -> None:
+        self._min_token_len = value
+        self._update_candidate_re()
+
+    def _update_candidate_re(self) -> None:
+        min_len = max(self._min_token_len, math.ceil(2**self._entropy_threshold))
+        self._min_entropy_len = min_len
+        self._candidate_re = re.compile(rf"[A-Za-z0-9+/=_\-.!@#$%&*]{{{min_len},}}")
+
     def placeholder(self, kind: str, secret: str) -> str:
-        short = hmac.new(self._hmac_key, secret.encode("utf-8"), hashlib.sha256).hexdigest()[:8]
+        short = hmac.new(
+            self._hmac_key, secret.encode("utf-8", errors="replace"), hashlib.sha256
+        ).hexdigest()[:8]
         kind_clean = re.sub(r"[^a-z0-9_]", "_", kind.lower()) or "secret"
         return f"[REDACTED:{kind_clean}:{short}]"
 
@@ -154,7 +162,7 @@ class Redactor:
 
     def _sub_layer2(self, match: re.Match[str]) -> str:
         token = match.group()
-        if len(token) < self.min_token_len or _HAS_DIGIT.search(token) is None:
+        if len(token) < self._min_entropy_len or _HAS_DIGIT.search(token) is None:
             return token
         if _is_safe(token):
             return token
@@ -166,7 +174,13 @@ class Redactor:
         if len(text) < 8:
             return text
 
-        cache_key = (text, self.enable_entropy)
+        cache_key = (
+            text,
+            self.enable_entropy,
+            self.entropy_threshold,
+            self.min_token_len,
+            self._hmac_key,
+        )
         cached = self._safe_text_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -196,8 +210,8 @@ class Redactor:
                     length=len(res),
                     max_bytes=self.entropy_max_scan_bytes,
                 )
-            elif _HAS_DIGIT.search(res) is not None and _CANDIDATE.search(res) is not None:
-                res = _CANDIDATE.sub(self._sub_layer2, res)
+            elif _HAS_DIGIT.search(res) is not None and self._candidate_re.search(res) is not None:
+                res = self._candidate_re.sub(self._sub_layer2, res)
 
         if placeholders and nonce is not None:
             unmask_re = re.compile(rf"\x00PH_{nonce}_(\d+)\x00")
@@ -214,11 +228,16 @@ class Redactor:
             new_dict: dict[Any, Any] = {}
             dict_items: Any = value  # pyright: ignore[reportUnknownVariableType]
             for k, v in dict_items.items():
-                if isinstance(k, str) and k in _SAFE_KEYS:
+                if isinstance(k, str) and PLACEHOLDER_RE.fullmatch(k):
                     new_k: Any = k
+                elif isinstance(k, str) and k in _SAFE_KEYS:
+                    new_k = k
                 elif isinstance(k, str):
                     new_k = self.redact_text(k) if len(k) >= 8 else k
                     if len(k) >= 3 and _SENSITIVE_KEY.search(k):
+                        if PLACEHOLDER_RE.fullmatch(str(v)):
+                            new_dict[new_k] = v
+                            continue
                         new_dict[new_k] = self.placeholder("key_name", str(v))
                         continue
                 else:

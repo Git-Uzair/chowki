@@ -33,8 +33,8 @@ BUDGETS: Final[dict[str, float]] = {
 }
 
 #: Multiplier applied to every budget before asserting, to absorb local dev box
-#: and CI runner noise.
-TOLERANCE: Final = 2.0
+#: CI runner noise.
+TOLERANCE: Final = 1.5
 
 
 def limit_seconds(name: str) -> float:
