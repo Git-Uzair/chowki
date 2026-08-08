@@ -143,23 +143,13 @@ class Redactor:
         if cached is not None:
             return cached
 
-        if _PROSE_RE.match(text) is not None:
+        has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(text) is not None)
+        has_candidate = _CANDIDATE.search(text) is not None
+
+        if not has_ind and not has_candidate:
             if len(self._safe_text_cache) < 10_000:
                 self._safe_text_cache[text] = text
             return text
-
-        has_ind_char = (
-            "-" in text
-            or "_" in text
-            or ":" in text
-            or "AKIA" in text
-            or "ASIA" in text
-            or "xox" in text
-            or "eyJ" in text
-            or "Bearer" in text
-            or "Basic" in text
-            or "-----" in text
-        )
 
         placeholders: list[str] = []
         nonce: str | None = None
@@ -176,15 +166,11 @@ class Redactor:
         else:
             working_text = text
 
-        has_ind = self._has_extra_patterns or (
-            has_ind_char and _HAS_INDICATOR.search(working_text) is not None
-        )
-
         res = working_text
         if has_ind:
             res = self._combined_re.sub(self._sub_layer1, res)
 
-        if self.enable_entropy:
+        if self.enable_entropy and has_candidate:
             if len(res) > self.entropy_max_scan_bytes:
                 logger.debug(
                     "redact_entropy_skipped_large_string",
