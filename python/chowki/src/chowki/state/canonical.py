@@ -27,7 +27,13 @@ def _nfc(value: object) -> Any:
         return unicodedata.normalize("NFC", value)
     if isinstance(value, dict):
         d = cast(dict[str, Any], value)
-        return {unicodedata.normalize("NFC", k): _nfc(v) for k, v in d.items()}
+        res: dict[str, Any] = {}
+        for k, v in d.items():
+            norm_k = unicodedata.normalize("NFC", k)
+            if norm_k in res:
+                raise ValueError(f"duplicate dict keys after NFC normalization: {k!r}")
+            res[norm_k] = _nfc(v)
+        return res
     if isinstance(value, list):
         lst = cast(list[object], value)
         return [_nfc(x) for x in lst]
@@ -72,26 +78,25 @@ def _canonical_astral(value: object) -> Any:
 def canonicalize(value: object) -> bytes:
     """Serialize value to canonical JSON bytes according to RFC 8785 rules."""
     normalized = _nfc(value)
+    if _has_astral_key(normalized):
+        target = _canonical_astral(normalized)
+        sort_keys = False
+    else:
+        target = normalized
+        sort_keys = True
+
     try:
-        if _has_astral_key(normalized):
-            astral_sorted = _canonical_astral(normalized)
-            return json.dumps(
-                astral_sorted,
-                sort_keys=False,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            ).encode("utf-8")
-        else:
-            return json.dumps(
-                normalized,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            ).encode("utf-8")
+        dumped = json.dumps(
+            target,
+            sort_keys=sort_keys,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
     except ValueError as err:
         raise ValueError("non-finite number in canonical JSON") from err
+
+    return dumped.encode("utf-8")
 
 
 def content_hash(value: object) -> str:

@@ -41,6 +41,16 @@ def test_non_finite_floats_are_rejected() -> None:
             canonicalize({"x": bad})
 
 
+def test_surrogate_string_does_not_raise_non_finite_number() -> None:
+    with pytest.raises(UnicodeEncodeError):
+        canonicalize({"a": "\ud800"})
+
+
+def test_duplicate_keys_after_nfc_normalization_raises() -> None:
+    with pytest.raises(ValueError, match="duplicate dict keys after NFC normalization"):
+        canonicalize({"caf\u00e9": 1, "cafe\u0301": 2})
+
+
 def test_non_bmp_keys_sort_by_utf16_code_units() -> None:
     """RFC 8785 sorts by UTF-16 code units; Python's sorted() uses code points.
     These disagree for astral-plane keys, so the slow path must engage."""
