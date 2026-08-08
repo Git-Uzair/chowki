@@ -123,6 +123,8 @@ is wrong, the fix is local to the task that first depends on it.
 
 ## Task 1 — Polyglot monorepo skeleton and repo configuration
 
+**Status:** COMPLETED (VERDICT: PASS)
+
 **Goal:** Create the directory layout, ignore rules, licence, README, and root
 `AGENTS.md` so that every later task has a defined home for its files.
 
@@ -260,6 +262,8 @@ exits non-zero listing every missing path. Then create them and confirm it exits
 ---
 
 ## Task 2 — `uv` workspace, package skeleton, and a proven lint/type/test harness
+
+**Status:** COMPLETED (VERDICT: PASS)
 
 **Goal:** A single `uv sync` at the repo root produces a working `.venv` in which the
 lint, type-check, and test commands from the Context table all run, proven by one
@@ -490,6 +494,8 @@ __all__ = ["__version__"]
 ---
 
 ## Task 3 — Benchmark harness and the central performance-budget registry
+
+**Status:** COMPLETED (VERDICT: PASS)
 
 **Goal:** A single place that declares every hot-path latency budget, plus a
 `pytest-benchmark` helper that turns a budget into a hard test failure, proven by one
