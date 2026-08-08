@@ -8,7 +8,7 @@ import re
 import uuid
 from collections import Counter
 from collections.abc import Sequence
-from typing import Any, Final, cast
+from typing import Any, Final
 
 import structlog
 
@@ -19,37 +19,29 @@ __all__ = ["PLACEHOLDER_RE", "Redactor"]
 PLACEHOLDER_RE: Final = re.compile(r"\[REDACTED:[a-z0-9_]+:[0-9a-f]{8}\]")
 
 _PROSE_RE: Final = re.compile(r"^[A-Za-z. ,!?'\"\n\r\t]+$")
+_HAS_DIGIT: Final = re.compile(r"\d")
 
 _PATTERNS: tuple[tuple[str, str], ...] = (
     (
         "private_key",
         r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
     ),
-    ("jwt", r"(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
-    (
-        "openai_proj",
-        r"(?<!\bta)(?<!\bdi)(?<!\bri)(?<!\bde)(?<!\bma)(?<!\bfla)(?<!\bwhi)(?<!\bbri)(?<!\ba)sk-proj-[A-Za-z0-9\-_]{40,}",
-    ),
-    (
-        "anthropic",
-        r"(?<!\bta)(?<!\bdi)(?<!\bri)(?<!\bde)(?<!\bma)(?<!\bfla)(?<!\bwhi)(?<!\bbri)(?<!\ba)sk-ant-[A-Za-z0-9\-_]{40,}",
-    ),
-    (
-        "openai",
-        r"(?<!\bta)(?<!\bdi)(?<!\bri)(?<!\bde)(?<!\bma)(?<!\bfla)(?<!\bwhi)(?<!\bbri)(?<!\ba)sk-[A-Za-z0-9\-_]{20,}",
-    ),
-    ("stripe", r"(?<![A-Za-z0-9])(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
-    ("aws_access", r"(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
+    ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
+    ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
+    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
+    ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
+    ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
-    ("github", r"(?<![A-Za-z0-9])ghp_[A-Za-z0-9]{36}\b"),
-    ("slack", r"(?<![A-Za-z0-9])xox[baprs]-[A-Za-z0-9\-]{10,}"),
-    ("bearer", r"(?<![A-Za-z0-9])Bearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
-    ("basic", r"(?<![A-Za-z0-9])Basic\s+[A-Za-z0-9+/]{10,}={0,2}"),
+    ("github", r"\bghp_[A-Za-z0-9]{36}\b"),
+    ("slack", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"),
+    ("bearer", r"\bBearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
+    ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
 _HAS_INDICATOR: Final = re.compile(
-    r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|Bearer|Basic|://", re.IGNORECASE
+    r"-----|eyJ|\bsk-|\bsk_|\bpk_|\bAKIA|\bASIA|aws_secret|\bghp_|\bxox|\bBearer|\bBasic|://"
 )
 
 _SENSITIVE_KEY: Final = re.compile(
@@ -75,13 +67,26 @@ def _is_number(s: str) -> bool:
 
 
 def _is_safe(token: str) -> bool:
+    if "/" in token or "\\" in token:
+        return True
+    if not (
+        "0" in token
+        or "1" in token
+        or "2" in token
+        or "3" in token
+        or "4" in token
+        or "5" in token
+        or "6" in token
+        or "7" in token
+        or "8" in token
+        or "9" in token
+    ):
+        return True
+    if _PROSE_RE.match(token) is not None:
+        return True
     if _UUID_RE.match(token) is not None:
         return True
     if len(token) in (16, 32, 40, 64) and _HEX_RE.match(token) is not None:
-        return True
-    if "/" in token or "\\" in token:
-        return True
-    if _PROSE_RE.match(token) is not None:
         return True
     if _is_number(token):
         return True
@@ -144,12 +149,63 @@ class Redactor:
         return token
 
     def redact_text(self, text: str) -> str:
-        if len(text) < 8:
+        if len(text) < 12:
             return text
 
         cached = self._safe_text_cache.get(text)
         if cached is not None:
             return cached
+
+        if not self._has_extra_patterns and not (
+            "-" in text
+            or "_" in text
+            or ":" in text
+            or "AKIA" in text
+            or "ASIA" in text
+            or "xox" in text
+            or "eyJ" in text
+            or "Bearer" in text
+            or "Basic" in text
+            or "0" in text
+            or "1" in text
+            or "2" in text
+            or "3" in text
+            or "4" in text
+            or "5" in text
+            or "6" in text
+            or "7" in text
+            or "8" in text
+            or "9" in text
+            or "[REDACTED:" in text
+        ):
+            if len(self._safe_text_cache) < 10_000:
+                self._safe_text_cache[text] = text
+            return text
+
+        has_ind_char = (
+            "-" in text
+            or "_" in text
+            or ":" in text
+            or "AKIA" in text
+            or "ASIA" in text
+            or "xox" in text
+            or "eyJ" in text
+            or "Bearer" in text
+            or "Basic" in text
+            or "-----" in text
+        )
+        has_digit = (
+            "0" in text
+            or "1" in text
+            or "2" in text
+            or "3" in text
+            or "4" in text
+            or "5" in text
+            or "6" in text
+            or "7" in text
+            or "8" in text
+            or "9" in text
+        )
 
         placeholders: list[str] = []
         nonce: str | None = None
@@ -166,68 +222,63 @@ class Redactor:
         else:
             working_text = text
 
-        has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(working_text) is not None)
+        has_ind = (self._has_extra_patterns or has_ind_char) and (
+            _HAS_INDICATOR.search(working_text) is not None
+        )
 
-        if not has_ind and not self.enable_entropy:
-            res = working_text
-        else:
-            res = working_text
-            if has_ind:
-                res = self._combined_re.sub(self._sub_layer1, res)
+        res = working_text
+        if has_ind:
+            res = self._combined_re.sub(self._sub_layer1, res)
 
-            if self.enable_entropy:
-                if len(res) > self.entropy_max_scan_bytes:
-                    logger.debug(
-                        "redact_entropy_skipped_large_string",
-                        length=len(res),
-                        max_bytes=self.entropy_max_scan_bytes,
-                    )
-                else:
-                    res = _CANDIDATE.sub(self._sub_layer2, res)
+        if self.enable_entropy and has_digit:
+            if len(res) > self.entropy_max_scan_bytes:
+                logger.debug(
+                    "redact_entropy_skipped_large_string",
+                    length=len(res),
+                    max_bytes=self.entropy_max_scan_bytes,
+                )
+            else:
+                res = _CANDIDATE.sub(self._sub_layer2, res)
 
         if placeholders and nonce is not None:
             unmask_re = re.compile(rf"\x00PH_{nonce}_(\d+)\x00")
             res = unmask_re.sub(lambda m: placeholders[int(m.group(1))], res)
 
-        # Only cache strings that contain NO redacted secrets
+        # Cache ONLY if NO secrets were found in the text
         if res == text and len(self._safe_text_cache) < 10_000:
-            self._safe_text_cache[text] = res
+            self._safe_text_cache[text] = text
 
         return res
 
     def redact(self, value: Any) -> Any:
         if isinstance(value, str):
-            if len(value) < 8:
+            if len(value) < 12:
                 return value
-            cached = self._safe_text_cache.get(value)
-            return cached if cached is not None else self.redact_text(value)
+            return self.redact_text(value)
 
         if isinstance(value, dict):
-            dict_items = cast(Any, value)
             new_dict: dict[Any, Any] = {}
-            safe_cache = self._safe_text_cache
+            dict_items: Any = value  # pyright: ignore[reportUnknownVariableType]
             for k, v in dict_items.items():
-                if isinstance(k, str):
-                    if k in _SAFE_KEYS:
-                        new_k = k
-                    else:
-                        cached_k = safe_cache.get(k)
-                        new_k = cached_k if cached_k is not None else self.redact_text(k)
-                        if _SENSITIVE_KEY.search(k) if len(k) >= 3 else False:
+                if isinstance(k, str) and k in _SAFE_KEYS:
+                    new_k: Any = k
+                else:
+                    if isinstance(k, str):
+                        new_k = self.redact_text(k) if len(k) >= 12 else k
+                        if len(k) >= 3 and _SENSITIVE_KEY.search(k):
                             if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
                                 new_dict[new_k] = v
                             else:
                                 new_dict[new_k] = self.placeholder("key_name", str(v))
                             continue
-                else:
-                    new_k = self.redact(k)
+                    else:
+                        new_k = self.redact(k)
 
                 if isinstance(v, str):
-                    if len(v) < 8:
+                    if len(v) < 12:
                         new_dict[new_k] = v
                     else:
-                        cached_v = safe_cache.get(v)
-                        new_dict[new_k] = cached_v if cached_v is not None else self.redact_text(v)
+                        new_dict[new_k] = self.redact_text(v)
                 elif isinstance(v, (dict, list, tuple)):
                     new_dict[new_k] = self.redact(v)
                 else:
@@ -235,11 +286,11 @@ class Redactor:
             return new_dict
 
         if isinstance(value, list):
-            list_items: list[Any] = cast(Any, value)
+            list_items: Any = value  # pyright: ignore[reportUnknownVariableType]
             return [self.redact(item) for item in list_items]
 
         if isinstance(value, tuple):
-            tuple_items: tuple[Any, ...] = cast(Any, value)
+            tuple_items: Any = value  # pyright: ignore[reportUnknownVariableType]
             return tuple(self.redact(item) for item in tuple_items)
 
         return value
