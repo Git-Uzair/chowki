@@ -102,7 +102,7 @@ def test_dict_keys_are_also_scanned(redactor: Redactor) -> None:
 @given(st.text(max_size=200))
 def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
     r = Redactor(hmac_key=KEY)
-    hostile = payload + SECRETS["openai"] + payload
+    hostile = f"{payload} {SECRETS['openai']} {payload}"
     out = r.redact_text(hostile)
     assert SECRETS["openai"] not in out
 
