@@ -25,26 +25,24 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
         "private_key",
         r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
     ),
-    ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
-    ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
-    ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
-    ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
-    ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("jwt", r"(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
+    ("openai_proj", r"(?<![A-Za-z0-9])sk-proj-[A-Za-z0-9\-_]{40,}"),
+    ("anthropic", r"(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9\-_]{40,}"),
+    ("openai", r"(?<![A-Za-z0-9])sk-[A-Za-z0-9\-_]{20,}"),
+    ("stripe", r"(?<![A-Za-z0-9])(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
+    ("aws_access", r"(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
-    ("github", r"\bghp_[A-Za-z0-9]{36}\b"),
-    ("slack", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"),
-    ("bearer", r"\bBearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
-    ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
+    ("github", r"(?<![A-Za-z0-9])ghp_[A-Za-z0-9]{36}\b"),
+    ("slack", r"(?<![A-Za-z0-9])xox[baprs]-[A-Za-z0-9\-]{10,}"),
+    ("bearer", r"(?<![A-Za-z0-9])Bearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
+    ("basic", r"(?<![A-Za-z0-9])Basic\s+[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
 _HAS_INDICATOR: Final = re.compile(
-    r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|Bearer|Basic|://"
+    r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|Bearer|Basic|://", re.IGNORECASE
 )
 _HAS_DIGIT: Final = re.compile(r"\d")
-
-_INDICATOR_CHAR_SET: Final = frozenset("-_:0123456789/=")
 
 _SENSITIVE_KEY: Final = re.compile(
     r"(?i)(api[_-]?key|secret|token|password|passwd|auth(?:orization)?|credential|private[_-]?key|access[_-]?key)"
@@ -160,12 +158,12 @@ class Redactor:
         else:
             working_text = text
 
-        if not self._has_extra_patterns and not (set(working_text) & _INDICATOR_CHAR_SET):
+        has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(working_text) is not None)
+        has_digit = _HAS_DIGIT.search(working_text) is not None
+
+        if not has_ind and not has_digit:
             res = working_text
         else:
-            has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(working_text) is not None)
-            has_digit = _HAS_DIGIT.search(working_text) is not None
-
             res = working_text
             if has_ind:
                 res = self._combined_re.sub(self._sub_layer1, res)
