@@ -102,9 +102,16 @@ def test_dict_keys_are_also_scanned(redactor: Redactor) -> None:
 @given(st.text(max_size=200))
 def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
     r = Redactor(hmac_key=KEY)
-    hostile = f"{payload} {SECRETS['openai']} {payload}"
+    hostile = payload + SECRETS["openai"] + payload
     out = r.redact_text(hostile)
     assert SECRETS["openai"] not in out
+
+
+def test_embedded_letter_prefixed_secret_is_redacted(redactor: Redactor) -> None:
+    """A secret pasted flush against a word must still be caught (verifier audit)."""
+    out = redactor.redact_text("Ask-A1b2C3d4E5f6G7h8I9j0A")
+    assert "sk-A1b2C3d4E5f6G7h8I9j0" not in out
+    assert PLACEHOLDER_RE.search(out) is not None
 
 
 def test_hostile_placeholder_injection(redactor: Redactor) -> None:
@@ -127,8 +134,9 @@ def test_false_positive_words_not_redacted(redactor: Redactor) -> None:
 @pytest.mark.parametrize(
     "token",
     [
-        "Bearer abcdefghijklmnopqrst",
+        "Bearer abcdefghijklmnop1234",
         "Bearer abcdef.ghijkl.mnopqrs",
+        "Bearer abc-def_ghi9jklmnop",
         "Bearer abcdefghijklmnop1234==",
         "Basic abcdefghijklmnop1234==",
     ],
@@ -139,11 +147,16 @@ def test_bearer_and_basic_tokens_are_redacted(redactor: Redactor, token: str) ->
     assert PLACEHOLDER_RE.search(out) is not None
 
 
-def test_bearer_and_basic_short_prose_words_not_redacted(redactor: Redactor) -> None:
-    t1 = "Use Bearer token for the API"
-    t2 = "Configure Basic auth settings today"
-    assert redactor.redact_text(t1) == t1
-    assert redactor.redact_text(t2) == t2
+def test_bearer_and_basic_prose_words_not_redacted(redactor: Redactor) -> None:
+    """Verifier audit: prose following "Bearer"/"Basic" must never be redacted."""
+    for prose in (
+        "Use Bearer token for the API",
+        "Configure Basic auth settings today",
+        "Bearer authentication is required",
+        "Basic authentication is required",
+        "The Bearer scheme transmits credentials in headers",
+    ):
+        assert redactor.redact_text(prose) == prose
 
 
 def test_prose_with_sk_words_in_sentences_not_redacted(redactor: Redactor) -> None:
@@ -234,7 +247,7 @@ def test_re_redact_is_idempotent(redactor: Redactor) -> None:
     assert a == b
 
 
-def test_cache_key_includes_entropy_params() -> None:
+def test_entropy_params_apply_immediately() -> None:
     r = Redactor(hmac_key=KEY, entropy_threshold=4.5)
     text = "abcdef123456gh"
     res1 = r.redact_text(text)
@@ -243,3 +256,13 @@ def test_cache_key_includes_entropy_params() -> None:
     res2 = r.redact_text(text)
     assert res2 != text
     assert PLACEHOLDER_RE.search(res2) is not None
+
+
+def test_oversized_strings_skip_entropy_but_not_layer_one() -> None:
+    """Strings above entropy_max_scan_bytes skip layer 2 only; layer 1 always runs."""
+    r = Redactor(hmac_key=KEY, entropy_max_scan_bytes=64)
+    big = ("lorem ipsum dolor sit amet " * 4) + SECRETS["openai"]
+    assert len(big) > 64
+    out = r.redact_text(big)
+    assert SECRETS["openai"] not in out
+    assert r.entropy_skip_count == 1

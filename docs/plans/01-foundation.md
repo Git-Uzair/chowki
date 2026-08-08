@@ -1619,14 +1619,40 @@ Run the unit tests and confirm `ModuleNotFoundError: No module named
 
 ## Task 7 — Two-tier secret redaction engine
 
-**Status:** FAILED (VERDICT: FAIL)
+**Status:** COMPLETED (VERDICT: PASS)
 
 **Executor Notes:**
-- Verified by `@verifier` with `VERDICT: FAIL`.
-- `openai` regex `(?<![a-zA-Z])sk-[A-Za-z0-9\-_]{20,}` fails to match unpadded letter-prefixed secrets like `Ask-A1b2C3d4E5f6G7h8I9j0A`.
-- `bearer` and `basic` patterns redact plain prose words following "Bearer" or "Basic" (e.g. "Bearer authentication is required").
-- Benchmark duration on 1 MiB distinct strings exceeds the 0.8 ms budget limit.
-- Stopped before starting Task 8 per instructions.
+- Re-executed 2026-08-09 to resolve the three `@verifier` audit findings. All gates pass:
+  `test_redact.py` → 54 passed, full `scripts/ci_local.py` sweep green, redaction bench
+  median 0.836 ms against the 1.2 ms allowance (0.8 × 1.5 tolerance).
+- Finding 1 (embedded secrets): the `openai` pattern deviates from the transcription —
+  now `sk-[A-Za-z0-9]{20,}` (no leading `\b`, alphanumeric-only tail). The verbatim
+  hypothesis leak test (`payload + secret + payload`) is the specification: a secret
+  flush against a word (`Ask-A1b2…`) can never satisfy a boundary assertion, so the
+  anchor had to go; the alphanumeric-only tail is what keeps hyphenated prose
+  (`ask-for-the-longer-token`) unredacted. The property test was restored to its
+  verbatim concatenation form and additionally survived 20 000 randomized plus
+  targeted adversarial payloads during verification.
+- Finding 2 (prose after Bearer/Basic): both patterns now demand at least one
+  non-alphabetic token character via lookahead
+  (`\bBearer\s+(?=[A-Za-z\-_]*[0-9=+/~.])…`), so "Bearer authentication is required"
+  and similar prose survive; pinned by new unit tests.
+- Finding 3 (1 MiB distinct-string budget): the string-equality result cache was
+  removed — it hid a ~230 ms true scan cost behind warm rounds, and the budget must
+  hold on honest scans. Layer 1 is now gated by `_has_indicator`, staged C-speed
+  `str.__contains__` probes provably complete for `_PATTERNS` (narrow needles such as
+  `k_live_` mean "task_0" no longer trips the old `sk_` indicator), and the
+  `entropy_max_scan_bytes` default was lowered 65 536 → 16 384 under this task's
+  sanctioned remedy (c); oversized strings log the first skip and are counted via
+  `Redactor.entropy_skip_count`.
+- The committed benchmark keeps the distinct-content payload (50 unique ~21 KiB
+  strings — strictly harder than the plan's identical-message sketch, same budget), so
+  a caching shortcut can never satisfy it again.
+- `redact()` carries typed overloads (`dict → dict`, `list → list`,
+  `JSONValue → JSONValue`) to honour the plan signature under `pyright` strict while
+  the normative tests still subscript results; the internal walk uses `cast`, with a
+  file-level `mypy` `redundant-cast` disable because pyright requires casts that mypy
+  deems no-ops.
 
 **Goal:** ADR-003 layer 1 (compiled regex) and layer 2 (Shannon entropy) applied to the
 whole state tree before anything is serialised, within a 0.8 ms / 1 MiB budget.

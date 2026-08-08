@@ -1,4 +1,15 @@
 # python/chowki/src/chowki/state/redact.py
+"""Two-tier secret redaction engine (ADR-003, docs/research/02-serialization.md:289-312).
+
+Layer 1 is a single combined regex alternation over known credential formats.
+Layer 2 is Shannon-entropy detection of unknown high-entropy tokens.
+A key-name tier redacts whole values under sensitive dict keys before either layer.
+"""
+
+# mypy: disable-error-code="redundant-cast"
+# The casts in _redact_any are required by pyright strict (Any narrowed via
+# isinstance yields Unknown element types) but are no-ops to mypy.
+
 from __future__ import annotations
 
 import hashlib
@@ -8,9 +19,11 @@ import re
 import uuid
 from collections import Counter
 from collections.abc import Sequence
-from typing import Any, Final
+from typing import Any, Final, cast, overload
 
 import structlog
+
+from chowki.types import JSONValue
 
 logger = structlog.get_logger()
 
@@ -28,22 +41,24 @@ _PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
     ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
     ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
+    # No leading \b and an alphanumeric-only tail: a secret pasted flush against a
+    # word ("Ask-A1b2...") must still be caught, while hyphenated prose after "sk-"
+    # ("ask-for-the-longer-token") must not. Hyphen/underscore-bearing key formats
+    # have their own dedicated patterns above.
+    ("openai", r"sk-[A-Za-z0-9]{20,}"),
     ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
     ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
     ("github", r"\bghp_[A-Za-z0-9]{36}\b"),
     ("slack", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"),
-    ("bearer", r"\bBearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
-    ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
+    # The lookaheads require at least one non-alphabetic token character so plain
+    # prose after the scheme word ("Bearer authentication is required") survives.
+    ("bearer", r"\bBearer\s+(?=[A-Za-z\-_]*[0-9=+/~.])[A-Za-z0-9\-._~+/]{10,}=*"),
+    ("basic", r"\bBasic\s+(?=[A-Za-z]*[0-9+/=])[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
 _DEFAULT_COMBINED_RE: Final = re.compile("|".join(f"(?P<{name}>{pat})" for name, pat in _PATTERNS))
-
-_HAS_INDICATOR: Final = re.compile(
-    r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|Bearer|Basic|://"
-)
 
 _SENSITIVE_KEY: Final = re.compile(
     r"(?i)(api[_-]?key|secret|token|password|passwd|auth(?:orization)?|credential|private[_-]?key|access[_-]?key)"
@@ -61,6 +76,31 @@ _UUID_RE: Final = re.compile(
 _HEX_RE: Final = re.compile(r"^[0-9a-fA-F]+$")
 
 _CONTAINER_TYPES: Final = (dict, list, tuple)
+
+
+def _has_indicator(t: str) -> bool:
+    """Cheap C-speed gate: can any layer-1 pattern possibly match ``t``?
+
+    Every pattern in ``_PATTERNS`` guarantees one of the probed literals in its
+    match, so a False here proves the combined regex cannot fire. Each probe is
+    a single ``str.__contains__`` scan, gated per family on one rare character,
+    so benign prose never pays for the full alternation. Deliberately narrow
+    probes ("k_live_", not "sk_") keep words like "task_0" from tripping it,
+    and longer needles skip further per mismatch.
+    """
+    if "-" in t and ("sk-" in t or "xox" in t or "-----" in t):
+        return True
+    if "_" in t and (
+        "k_live_" in t or "k_test_" in t or "aws_secret_access_key" in t or "ghp_" in t
+    ):
+        return True
+    if ":" in t and "://" in t:
+        return True
+    if "J" in t and "eyJ" in t:
+        return True
+    if "B" in t and ("Bearer" in t or "Basic" in t):
+        return True
+    return "I" in t and ("AKIA" in t or "ASIA" in t)
 
 
 def _is_number(s: str) -> bool:
@@ -103,7 +143,7 @@ class Redactor:
         entropy_threshold: float = 4.5,
         min_token_len: int = 12,
         enable_entropy: bool = True,
-        entropy_max_scan_bytes: int = 65_536,
+        entropy_max_scan_bytes: int = 16_384,
         extra_patterns: Sequence[tuple[str, str]] = (),
     ) -> None:
         self._hmac_key = hmac_key
@@ -113,7 +153,7 @@ class Redactor:
         self.enable_entropy = enable_entropy
         self.entropy_max_scan_bytes = entropy_max_scan_bytes
         self._has_extra_patterns = bool(extra_patterns)
-        self._safe_text_cache: dict[tuple[str, bool, float, int, bytes], str] = {}
+        self._entropy_skip_count = 0
 
         if extra_patterns:
             patterns: list[tuple[str, str]] = list(_PATTERNS)
@@ -143,7 +183,14 @@ class Redactor:
         self._min_token_len = value
         self._update_candidate_re()
 
+    @property
+    def entropy_skip_count(self) -> int:
+        """How many oversized strings have skipped the entropy tier so far."""
+        return self._entropy_skip_count
+
     def _update_candidate_re(self) -> None:
+        # Shannon entropy of a string is at most log2(len), so a token can only
+        # clear the threshold once it has at least ceil(2**threshold) characters.
         min_len = max(self._min_token_len, math.ceil(2**self._entropy_threshold))
         self._min_entropy_len = min_len
         self._candidate_re = re.compile(rf"[A-Za-z0-9+/=_\-.!@#$%&*]{{{min_len},}}")
@@ -174,17 +221,6 @@ class Redactor:
         if len(text) < 8:
             return text
 
-        cache_key = (
-            text,
-            self.enable_entropy,
-            self.entropy_threshold,
-            self.min_token_len,
-            self._hmac_key,
-        )
-        cached = self._safe_text_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
         placeholders: list[str] = []
         nonce: str | None = None
         if "[REDACTED:" in text and PLACEHOLDER_RE.search(text):
@@ -200,16 +236,21 @@ class Redactor:
         else:
             working_text = text
 
-        has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(working_text) is not None)
-        res = self._combined_re.sub(self._sub_layer1, working_text) if has_ind else working_text
+        if self._has_extra_patterns or _has_indicator(working_text):
+            res = self._combined_re.sub(self._sub_layer1, working_text)
+        else:
+            res = working_text
 
         if self.enable_entropy:
             if len(res) > self.entropy_max_scan_bytes:
-                logger.debug(
-                    "redact_entropy_skipped_large_string",
-                    length=len(res),
-                    max_bytes=self.entropy_max_scan_bytes,
-                )
+                self._entropy_skip_count += 1
+                if self._entropy_skip_count == 1:
+                    logger.debug(
+                        "redact_entropy_skipped_large_string",
+                        length=len(res),
+                        max_bytes=self.entropy_max_scan_bytes,
+                        note="further skips counted in entropy_skip_count, not logged",
+                    )
             elif _HAS_DIGIT.search(res) is not None and self._candidate_re.search(res) is not None:
                 res = self._candidate_re.sub(self._sub_layer2, res)
 
@@ -217,17 +258,25 @@ class Redactor:
             unmask_re = re.compile(rf"\x00PH_{nonce}_(\d+)\x00")
             res = unmask_re.sub(lambda m: placeholders[int(m.group(1))], res)
 
-        # Cache ONLY if NO secrets were found in the text
-        if res == text and len(self._safe_text_cache) < 10_000:
-            self._safe_text_cache[cache_key] = text
-
         return res
 
+    @overload
+    def redact(self, value: dict[str, Any]) -> dict[str, Any]: ...
+
+    @overload
+    def redact(self, value: list[Any]) -> list[Any]: ...
+
+    @overload
+    def redact(self, value: JSONValue) -> JSONValue: ...
+
     def redact(self, value: Any) -> Any:
+        return self._redact_any(value)
+
+    def _redact_any(self, value: Any) -> Any:
         if isinstance(value, dict):
+            source = cast("dict[Any, Any]", value)
             new_dict: dict[Any, Any] = {}
-            dict_items: Any = value  # pyright: ignore[reportUnknownVariableType]
-            for k, v in dict_items.items():
+            for k, v in source.items():
                 if isinstance(k, str) and PLACEHOLDER_RE.fullmatch(k):
                     new_k: Any = k
                 elif isinstance(k, str) and k in _SAFE_KEYS:
@@ -241,21 +290,21 @@ class Redactor:
                         new_dict[new_k] = self.placeholder("key_name", str(v))
                         continue
                 else:
-                    new_k = self.redact(k)
+                    new_k = self._redact_any(k)
 
                 if isinstance(v, str):
                     new_dict[new_k] = (
                         v if (len(v) < 8 or v in _SAFE_VALUES) else self.redact_text(v)
                     )
                 elif isinstance(v, _CONTAINER_TYPES):
-                    new_dict[new_k] = self.redact(v)
+                    new_dict[new_k] = self._redact_any(v)
                 else:
                     new_dict[new_k] = v
             return new_dict
 
         if isinstance(value, list):
-            list_items: Any = value  # pyright: ignore[reportUnknownVariableType]
-            return [self.redact(item) for item in list_items]
+            items = cast("list[Any]", value)
+            return [self._redact_any(item) for item in items]
 
         if isinstance(value, str):
             if len(value) < 8:
@@ -263,7 +312,7 @@ class Redactor:
             return self.redact_text(value)
 
         if isinstance(value, tuple):
-            tuple_items: Any = value  # pyright: ignore[reportUnknownVariableType]
-            return tuple(self.redact(item) for item in tuple_items)
+            entries = cast("tuple[Any, ...]", value)
+            return tuple(self._redact_any(item) for item in entries)
 
         return value
