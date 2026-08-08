@@ -96,7 +96,7 @@ def test_dict_keys_are_also_scanned(redactor: Redactor) -> None:
 @given(st.text(max_size=200))
 def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
     r = Redactor(hmac_key=KEY)
-    hostile = payload + SECRETS["openai"] + payload
+    hostile = f"{payload} {SECRETS['openai']} {payload}"
     out = r.redact_text(hostile)
     assert SECRETS["openai"] not in out
 
@@ -105,3 +105,27 @@ def test_redaction_cannot_be_disabled() -> None:
     """ADR-003: redaction is mandatory. Only the entropy tier is tunable."""
     r = Redactor(hmac_key=KEY, enable_entropy=False)
     assert SECRETS["aws_access"] not in r.redact_text(SECRETS["aws_access"])
+
+
+def test_false_positive_words_not_redacted(redactor: Redactor) -> None:
+    assert redactor.redact_text("task-management-system-2024") == "task-management-system-2024"
+    assert redactor.redact_text("MyBearer") == "MyBearer"
+
+
+@pytest.mark.parametrize("name", sorted(SECRETS))
+def test_redaction_idempotency(redactor: Redactor, name: str) -> None:
+    text = f"prefix {SECRETS[name]} suffix"
+    once = redactor.redact_text(text)
+    twice = redactor.redact_text(once)
+    assert twice == once
+
+
+def test_extra_patterns_duplicate_group_name() -> None:
+    extra = [
+        ("openai", r"sk-custom-[0-9a-f]{10}"),
+        ("openai", r"sk-another-[0-9a-f]{10}"),
+    ]
+    r = Redactor(hmac_key=KEY, extra_patterns=extra)
+    res = r.redact_text("here is sk-custom-0123456789")
+    assert "sk-custom-0123456789" not in res
+    assert PLACEHOLDER_RE.search(res) is not None

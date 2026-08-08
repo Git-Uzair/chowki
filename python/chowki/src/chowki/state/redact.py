@@ -16,23 +16,24 @@ logger = structlog.get_logger()
 __all__ = ["PLACEHOLDER_RE", "Redactor"]
 
 PLACEHOLDER_RE: Final = re.compile(r"\[REDACTED:[a-z0-9_]+:[0-9a-f]{8}\]")
+_UNMASK_RE: Final = re.compile(r"\x00PH_(\d+)\x00")
 
 _PATTERNS: tuple[tuple[str, str], ...] = (
     (
         "private_key",
         r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
     ),
-    ("jwt", r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
-    ("openai_proj", r"sk-proj-[A-Za-z0-9\-_]{40,}"),
-    ("anthropic", r"sk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"sk-[A-Za-z0-9\-_]{20,}"),
-    ("stripe", r"(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
-    ("aws_access", r"(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
+    ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
+    ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
+    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
+    ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
+    ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
-    ("github", r"ghp_[A-Za-z0-9]{36}\b"),
-    ("slack", r"xox[baprs]-[A-Za-z0-9\-]{10,}"),
-    ("bearer", r"Bearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
-    ("basic", r"Basic\s+[A-Za-z0-9+/]{10,}={0,2}"),
+    ("github", r"\bghp_[A-Za-z0-9]{36}\b"),
+    ("slack", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"),
+    ("bearer", r"\bBearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
+    ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
@@ -118,7 +119,9 @@ class Redactor:
 
         patterns: list[tuple[str, str]] = list(_PATTERNS)
         if extra_patterns:
-            patterns.extend(extra_patterns)
+            for i, (name, pat) in enumerate(extra_patterns):
+                clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name) or "extra"
+                patterns.append((f"extra_{i}_{clean_name}", pat))
         combined_pattern = "|".join(f"(?P<{name}>{pat})" for name, pat in patterns)
         self._combined_re = re.compile(combined_pattern)
 
@@ -150,43 +153,61 @@ class Redactor:
         if cached is not None:
             return cached
 
-        res = text
+        placeholders: list[str] = []
+        if PLACEHOLDER_RE.search(text):
+
+            def _mask_ph(m: re.Match[str]) -> str:
+                idx = len(placeholders)
+                placeholders.append(m.group(0))
+                return f"\x00PH_{idx}\x00"
+
+            working_text = PLACEHOLDER_RE.sub(_mask_ph, text)
+        else:
+            working_text = text
 
         if not self._has_extra_patterns and not (
-            "-" in text
-            or "_" in text
-            or ":" in text
-            or "/" in text
-            or "=" in text
-            or "0" in text
-            or "1" in text
-            or "2" in text
-            or "3" in text
-            or "4" in text
-            or "5" in text
-            or "6" in text
-            or "7" in text
-            or "8" in text
-            or "9" in text
-            or "Bearer" in text
-            or "Basic" in text
-            or "AKIA" in text
-            or "ASIA" in text
-            or "xox" in text
-            or "eyJ" in text
+            "-" in working_text
+            or "_" in working_text
+            or ":" in working_text
+            or "/" in working_text
+            or "=" in working_text
+            or "0" in working_text
+            or "1" in working_text
+            or "2" in working_text
+            or "3" in working_text
+            or "4" in working_text
+            or "5" in working_text
+            or "6" in working_text
+            or "7" in working_text
+            or "8" in working_text
+            or "9" in working_text
+            or "Bearer" in working_text
+            or "Basic" in working_text
+            or "AKIA" in working_text
+            or "ASIA" in working_text
+            or "xox" in working_text
+            or "eyJ" in working_text
         ):
+            res = working_text
+            if placeholders:
+                res = _UNMASK_RE.sub(lambda m: placeholders[int(m.group(1))], res)
             if len(self._text_cache) < 10_000:
-                self._text_cache[text] = text
-            return text
+                self._text_cache[text] = res
+            return res
 
-        has_ind = self._has_extra_patterns or any(ind in text for ind in _INDICATORS)
-        has_digit = any(d in text for d in _DIGITS)
+        has_ind = self._has_extra_patterns or any(ind in working_text for ind in _INDICATORS)
+        has_digit = any(d in working_text for d in _DIGITS)
 
         # Short-circuit if no indicators for Layer 1 and no digits for Layer 2
         if not has_ind and not has_digit:
+            res = working_text
+            if placeholders:
+                res = _UNMASK_RE.sub(lambda m: placeholders[int(m.group(1))], res)
             if len(self._text_cache) < 10_000:
-                self._text_cache[text] = text
-            return text
+                self._text_cache[text] = res
+            return res
+
+        res = working_text
 
         # Layer 1: Compiled combined regex pass
         if has_ind:
@@ -202,6 +223,9 @@ class Redactor:
                 )
             else:
                 res = _CANDIDATE.sub(self._sub_layer2, res)
+
+        if placeholders:
+            res = _UNMASK_RE.sub(lambda m: placeholders[int(m.group(1))], res)
 
         if len(self._text_cache) < 10_000:
             self._text_cache[text] = res
@@ -236,7 +260,10 @@ class Redactor:
                             sensitive_cache[k] = is_sens
 
                     if is_sens:
-                        new_dict[new_k] = self.placeholder("key_name", str(v))
+                        if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
+                            new_dict[new_k] = v
+                        else:
+                            new_dict[new_k] = self.placeholder("key_name", str(v))
                         continue
                 else:
                     new_k = self.redact(k)
