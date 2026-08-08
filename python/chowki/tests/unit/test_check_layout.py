@@ -51,6 +51,9 @@ def test_check_layout_detects_multiple_trailing_newlines(
         "sample.jsx",
         "sample.mdx",
         "sample.txt",
+        "py.typed",
+        "config.xml",
+        "data.jsonl",
         "LICENSE",
         "README",
         ".gitignore",
@@ -61,7 +64,7 @@ def test_check_layout_detects_multiple_trailing_newlines(
 def test_check_layout_detects_banned_term_in_various_file_types(
     filename: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Banned product term in .ts, .js, .pyi, .tsx, .jsx, .mdx and extensionless files must fail."""
+    """Banned product term in .ts, .js, .pyi, py.typed, .xml, .jsonl, etc. must fail."""
     monkeypatch.setattr(check_layout, "ROOT", tmp_path)
     for d in check_layout.REQUIRED_DIRS:
         (tmp_path / d).mkdir(parents=True, exist_ok=True)
@@ -71,6 +74,66 @@ def test_check_layout_detects_banned_term_in_various_file_types(
 
     banned = "check" + "point"
     (tmp_path / filename).write_text(f"some {banned} here\n", encoding="utf-8")
+
+    assert check_layout.main() == 1
+
+
+def test_check_layout_detects_banned_term_in_path_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Path containing banned product term in filename or directory name must fail."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("content\n", encoding="utf-8")
+
+    banned = "check" + "point"
+
+    # Test file with banned term in filename
+    bad_file = tmp_path / f"my_{banned}_module.py"
+    bad_file.write_text("valid_content = 123\n", encoding="utf-8")
+
+    assert check_layout.main() == 1
+
+
+def test_check_layout_detects_banned_term_in_dir_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Directory name containing banned product term must fail."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("content\n", encoding="utf-8")
+
+    banned = "check" + "point"
+
+    bad_dir = tmp_path / f"sub_{banned}_dir"
+    bad_dir.mkdir(parents=True, exist_ok=True)
+    (bad_dir / "valid.py").write_text("valid = True\n", encoding="utf-8")
+
+    assert check_layout.main() == 1
+
+
+def test_check_layout_scans_files_named_dist_or_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plain files named 'dist' or 'build' are scanned and not skipped as excluded directories."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("content\n", encoding="utf-8")
+
+    banned = "check" + "point"
+
+    # A plain file named dist containing a banned term must fail
+    dist_file = tmp_path / "dist"
+    dist_file.write_text(f"banned = '{banned}'\n", encoding="utf-8")
 
     assert check_layout.main() == 1
 

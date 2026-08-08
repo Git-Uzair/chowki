@@ -43,41 +43,53 @@ EXCLUDED_DIR_NAMES = {
     "dist",
     "build",
     "htmlcov",
+    "__pycache__",
 }
 
-CHECKED_SUFFIXES = {
-    ".py",
-    ".pyi",
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".md",
-    ".mdx",
-    ".json",
-    ".toml",
-    ".yml",
-    ".yaml",
-    ".cfg",
-    ".txt",
-    ".sh",
-    ".ps1",
-    ".bat",
-    ".cmd",
-    ".html",
-    ".css",
-    ".scss",
-    ".rs",
-    ".go",
-    ".c",
-    ".h",
-    ".cpp",
-    ".rst",
-    ".ini",
-    ".lock",
+BINARY_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".webp",
+    ".svgz",
+    ".pdf",
+    ".zip",
+    ".gz",
+    ".tar",
+    ".tgz",
+    ".7z",
+    ".bz2",
+    ".xz",
+    ".pyc",
+    ".pyo",
+    ".pyd",
+    ".so",
+    ".dll",
+    ".exe",
+    ".dylib",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".eot",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
 }
 
 BANNED_WORD = "check" + "point"  # split so this guard never trips on itself
+
+
+def is_binary(path: Path) -> bool:
+    if path.suffix.lower() in BINARY_SUFFIXES:
+        return True
+    try:
+        chunk = path.read_bytes()[:8192]
+        return b"\x00" in chunk
+    except Exception:
+        return True
 
 
 def main() -> int:
@@ -92,11 +104,11 @@ def main() -> int:
     script_path = Path(__file__).resolve()
 
     for path in ROOT.rglob("*"):
-        if not path.is_file():
-            continue
-
         rel_path = path.relative_to(ROOT)
-        if any(part in EXCLUDED_DIR_NAMES or part.endswith(".egg-info") for part in rel_path.parts):
+
+        # Check directory exclusions: parent dirs for files, all parts for dirs
+        check_parts = rel_path.parts[:-1] if path.is_file() else rel_path.parts
+        if any(part in EXCLUDED_DIR_NAMES or part.endswith(".egg-info") for part in check_parts):
             continue
 
         if path.resolve() == script_path:
@@ -105,7 +117,13 @@ def main() -> int:
         if path.name.startswith(".coverage") or path.name == ".DS_Store":
             continue
 
-        if not (path.suffix in CHECKED_SUFFIXES or path.suffix == ""):
+        if BANNED_WORD in str(rel_path).lower():
+            failures.append(f"banned product term in path {rel_path}")
+
+        if not path.is_file():
+            continue
+
+        if is_binary(path):
             continue
 
         text = path.read_text(encoding="utf-8", errors="ignore")
