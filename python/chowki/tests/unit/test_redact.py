@@ -153,3 +153,16 @@ def test_extra_patterns_duplicate_group_name() -> None:
     res = r.redact_text("here is sk-custom-0123456789")
     assert "sk-custom-0123456789" not in res
     assert PLACEHOLDER_RE.search(res) is not None
+
+
+def test_extra_patterns_without_builtin_indicators() -> None:
+    r = Redactor(hmac_key=KEY, extra_patterns=[("corp", r"CORP[0-9]{10}")])
+    out = r.redact_text("id CORP1234567890 end")
+    assert "CORP1234567890" not in out
+    assert PLACEHOLDER_RE.search(out) is not None
+
+
+def test_short_string_uri_userinfo_redaction(redactor: Redactor) -> None:
+    out = redactor.redact_text("a://u:p1@x")
+    assert "u:p1" not in out
+    assert PLACEHOLDER_RE.search(out) is not None

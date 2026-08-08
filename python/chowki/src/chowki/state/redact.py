@@ -136,7 +136,7 @@ class Redactor:
         return token
 
     def redact_text(self, text: str) -> str:
-        if len(text) < 12:
+        if len(text) < 8:
             return text
 
         cached = self._safe_text_cache.get(text)
@@ -176,8 +176,8 @@ class Redactor:
         else:
             working_text = text
 
-        has_ind = (self._has_extra_patterns or has_ind_char) and (
-            _HAS_INDICATOR.search(working_text) is not None
+        has_ind = self._has_extra_patterns or (
+            has_ind_char and _HAS_INDICATOR.search(working_text) is not None
         )
 
         res = working_text
@@ -206,7 +206,7 @@ class Redactor:
 
     def redact(self, value: Any) -> Any:
         if isinstance(value, str):
-            if len(value) < 12:
+            if len(value) < 8:
                 return value
             return self.redact_text(value)
 
@@ -218,7 +218,7 @@ class Redactor:
                     new_k: Any = k
                 else:
                     if isinstance(k, str):
-                        new_k = self.redact_text(k) if len(k) >= 12 else k
+                        new_k = self.redact_text(k) if len(k) >= 8 else k
                         if len(k) >= 3 and _SENSITIVE_KEY.search(k):
                             if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
                                 new_dict[new_k] = v
@@ -229,7 +229,7 @@ class Redactor:
                         new_k = self.redact(k)
 
                 if isinstance(v, str):
-                    if len(v) < 12:
+                    if len(v) < 8:
                         new_dict[new_k] = v
                     else:
                         new_dict[new_k] = self.redact_text(v)
