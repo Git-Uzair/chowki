@@ -29,7 +29,7 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
     ("openai_proj", r"sk-proj-[A-Za-z0-9\-_]{40,}"),
     ("anthropic", r"sk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"sk-(?![a-z\-]+$)[A-Za-z0-9\-_]{20,}"),
+    ("openai", r"sk-(?![a-z\-]+(?=[^A-Za-z0-9\-_]|$))[A-Za-z0-9\-_]{20,}"),
     ("stripe", r"(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
     ("aws_access", r"(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
@@ -139,7 +139,7 @@ class Redactor:
         return token
 
     def redact_text(self, text: str) -> str:
-        if len(text) < 12:
+        if len(text) < 8:
             return text
 
         cached = self._safe_text_cache.get(text)
@@ -202,7 +202,7 @@ class Redactor:
                     new_k: Any = k
                 else:
                     if isinstance(k, str):
-                        new_k = self.redact_text(k) if len(k) >= 12 else k
+                        new_k = self.redact_text(k) if len(k) >= 8 else k
                         if len(k) >= 3 and _SENSITIVE_KEY.search(k):
                             if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
                                 new_dict[new_k] = v
@@ -213,7 +213,7 @@ class Redactor:
                         new_k = self.redact(k)
 
                 if isinstance(v, str):
-                    if len(v) < 12:
+                    if len(v) < 8:
                         new_dict[new_k] = v
                     else:
                         new_dict[new_k] = self.redact_text(v)
@@ -228,7 +228,7 @@ class Redactor:
             return [self.redact(item) for item in list_items]
 
         if isinstance(value, str):
-            if len(value) < 12:
+            if len(value) < 8:
                 return value
             return self.redact_text(value)
 

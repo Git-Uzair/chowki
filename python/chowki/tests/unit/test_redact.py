@@ -125,6 +125,27 @@ def test_false_positive_words_not_redacted(redactor: Redactor) -> None:
     assert redactor.redact_text("MyBearer") == "MyBearer"
 
 
+def test_prose_with_sk_words_in_sentences_not_redacted(redactor: Redactor) -> None:
+    text1 = "Please ask-for-the-longer-token when logging in."
+    assert redactor.redact_text(text1) == text1
+
+    text2 = "Update the task-management-system-config file."
+    assert redactor.redact_text(text2) == text2
+
+    text3 = "Check the disk-space-warning-threshold value."
+    assert redactor.redact_text(text3) == text3
+
+    text4 = "Review the risk-assessment-protocol-version now."
+    assert redactor.redact_text(text4) == text4
+
+
+def test_short_uri_userinfo_and_credentials_redacted(redactor: Redactor) -> None:
+    uri = "db://u:pw@h"  # 11 chars
+    out = redactor.redact_text(uri)
+    assert "u:pw" not in out
+    assert PLACEHOLDER_RE.search(out) is not None
+
+
 def test_digit_preceding_secret_is_redacted(redactor: Redactor) -> None:
     secret = "0sk-A1b2C3d4E5f6G7h8I9j00"
     out = redactor.redact_text(secret)
