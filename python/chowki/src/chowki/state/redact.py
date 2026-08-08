@@ -29,7 +29,7 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
     ("openai_proj", r"sk-proj-[A-Za-z0-9\-_]{40,}"),
     ("anthropic", r"sk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"sk-(?![a-z\-]+(?=[^A-Za-z0-9\-_]|$))[A-Za-z0-9\-_]{20,}"),
+    ("openai", r"(?<![a-zA-Z0-9])sk-[A-Za-z0-9\-_]{20,}"),
     ("stripe", r"(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
     ("aws_access", r"(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),

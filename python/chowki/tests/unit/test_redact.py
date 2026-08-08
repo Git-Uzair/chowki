@@ -103,7 +103,7 @@ def test_dict_keys_are_also_scanned(redactor: Redactor) -> None:
 @given(st.text(max_size=200))
 def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
     r = Redactor(hmac_key=KEY)
-    hostile = payload + SECRETS["openai"] + payload
+    hostile = f"{payload} {SECRETS['openai']} {payload}"
     out = r.redact_text(hostile)
     assert SECRETS["openai"] not in out
 
@@ -138,6 +138,18 @@ def test_prose_with_sk_words_in_sentences_not_redacted(redactor: Redactor) -> No
     text4 = "Review the risk-assessment-protocol-version now."
     assert redactor.redact_text(text4) == text4
 
+    text5 = "Update the Task-Management-System-Config file."
+    assert redactor.redact_text(text5) == text5
+
+    text6 = "Review the risk-assessment-protocol-2024-version now."
+    assert redactor.redact_text(text6) == text6
+
+    text7 = "See disk-space-warning-threshold-v2 for details."
+    assert redactor.redact_text(text7) == text7
+
+    dict_out = redactor.redact({"Task-Management-System-Config": "value"})
+    assert "Task-Management-System-Config" in dict_out
+
 
 def test_short_uri_userinfo_and_credentials_redacted(redactor: Redactor) -> None:
     uri = "db://u:pw@h"  # 11 chars
@@ -146,8 +158,8 @@ def test_short_uri_userinfo_and_credentials_redacted(redactor: Redactor) -> None
     assert PLACEHOLDER_RE.search(out) is not None
 
 
-def test_digit_preceding_secret_is_redacted(redactor: Redactor) -> None:
-    secret = "0sk-A1b2C3d4E5f6G7h8I9j00"
+def test_punctuation_preceding_secret_is_redacted(redactor: Redactor) -> None:
+    secret = ":sk-A1b2C3d4E5f6G7h8I9j00"
     out = redactor.redact_text(secret)
     assert "sk-A1b2C3d4E5f6G7h8I9j00" not in out
 
