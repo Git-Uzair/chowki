@@ -18,24 +18,8 @@ __all__ = ["PLACEHOLDER_RE", "Redactor"]
 
 PLACEHOLDER_RE: Final = re.compile(r"\[REDACTED:[a-z0-9_]+:[0-9a-f]{8}\]")
 
-_PROSE_RE: Final = re.compile(r"^[A-Za-z. ,!?'\"\n\r\t]+$")
 _HAS_DIGIT: Final = re.compile(r"\d")
 _DIGITS_TUPLE: Final = ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
-_INDICATOR_TUPLE: Final = (
-    "-----",
-    "eyJ",
-    "sk-",
-    "sk_",
-    "pk_",
-    "AKIA",
-    "ASIA",
-    "aws_secret",
-    "ghp_",
-    "xox",
-    "Bearer",
-    "Basic",
-    "://",
-)
 
 _PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     (
@@ -200,10 +184,7 @@ class Redactor:
             )
             and (_HAS_INDICATOR.search(working_text) is not None)
         )
-        if has_ind:
-            res = self._combined_re.sub(self._sub_layer1, working_text)
-        else:
-            res = working_text
+        res = self._combined_re.sub(self._sub_layer1, working_text) if has_ind else working_text
 
         if self.enable_entropy:
             if len(res) > self.entropy_max_scan_bytes:
@@ -238,10 +219,7 @@ class Redactor:
                     if isinstance(k, str):
                         new_k = self.redact_text(k) if len(k) >= 8 else k
                         if len(k) >= 3 and _SENSITIVE_KEY.search(k):
-                            if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
-                                new_dict[new_k] = v
-                            else:
-                                new_dict[new_k] = self.placeholder("key_name", str(v))
+                            new_dict[new_k] = self.placeholder("key_name", str(v))
                             continue
                     else:
                         new_k = self.redact(k)
