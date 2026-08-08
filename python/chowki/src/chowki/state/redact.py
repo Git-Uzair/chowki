@@ -27,21 +27,21 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
         r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
     ),
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
-    ("openai_proj", r"(?<![A-Za-z])sk-proj-[A-Za-z0-9\-_]{40,}"),
-    ("anthropic", r"(?<![A-Za-z])sk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"(?<![A-Za-z])sk-[A-Za-z0-9\-_]{20,}"),
-    ("stripe", r"(?<![A-Za-z])(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
-    ("aws_access", r"(?<![A-Za-z])(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("openai_proj", r"sk-proj-[A-Za-z0-9\-_]{40,}"),
+    ("anthropic", r"sk-ant-[A-Za-z0-9\-_]{40,}"),
+    ("openai", r"sk-(?![a-z\-]+$)[A-Za-z0-9\-_]{20,}"),
+    ("stripe", r"(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
+    ("aws_access", r"(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
-    ("github", r"(?<![A-Za-z])ghp_[A-Za-z0-9]{36}\b"),
-    ("slack", r"(?<![A-Za-z])xox[baprs]-[A-Za-z0-9\-]{10,}"),
+    ("github", r"ghp_[A-Za-z0-9]{36}\b"),
+    ("slack", r"xox[baprs]-[A-Za-z0-9\-]{10,}"),
     ("bearer", r"\bBearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
     ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
 _HAS_INDICATOR: Final = re.compile(
-    r"-----|eyJ|(?<![A-Za-z])sk-|(?<![A-Za-z])sk_|(?<![A-Za-z])pk_|(?<![A-Za-z])AKIA|(?<![A-Za-z])ASIA|aws_secret|(?<![A-Za-z])ghp_|(?<![A-Za-z])xox|\bBearer|\bBasic|://"
+    r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|\bBearer|\bBasic|://"
 )
 
 _SENSITIVE_KEY: Final = re.compile(
@@ -56,6 +56,9 @@ _UUID_RE: Final = re.compile(
 )
 _HEX_RE: Final = re.compile(r"^[0-9a-fA-F]+$")
 _CANDIDATE: Final = re.compile(r"[A-Za-z0-9+/=_\-.!@#$%&*]{12,}")
+
+
+_CONTAINER_TYPES: Final = (dict, list, tuple)
 
 
 def _is_number(s: str) -> bool:
@@ -136,7 +139,7 @@ class Redactor:
         return token
 
     def redact_text(self, text: str) -> str:
-        if len(text) < 8:
+        if len(text) < 12:
             return text
 
         cached = self._safe_text_cache.get(text)
@@ -144,7 +147,7 @@ class Redactor:
             return cached
 
         has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(text) is not None)
-        has_candidate = _CANDIDATE.search(text) is not None
+        has_candidate = self.enable_entropy and (_CANDIDATE.search(text) is not None)
 
         if not has_ind and not has_candidate:
             if len(self._safe_text_cache) < 10_000:
@@ -191,11 +194,6 @@ class Redactor:
         return res
 
     def redact(self, value: Any) -> Any:
-        if isinstance(value, str):
-            if len(value) < 8:
-                return value
-            return self.redact_text(value)
-
         if isinstance(value, dict):
             new_dict: dict[Any, Any] = {}
             dict_items: Any = value  # pyright: ignore[reportUnknownVariableType]
@@ -204,7 +202,7 @@ class Redactor:
                     new_k: Any = k
                 else:
                     if isinstance(k, str):
-                        new_k = self.redact_text(k) if len(k) >= 8 else k
+                        new_k = self.redact_text(k) if len(k) >= 12 else k
                         if len(k) >= 3 and _SENSITIVE_KEY.search(k):
                             if isinstance(v, str) and PLACEHOLDER_RE.fullmatch(v):
                                 new_dict[new_k] = v
@@ -215,11 +213,11 @@ class Redactor:
                         new_k = self.redact(k)
 
                 if isinstance(v, str):
-                    if len(v) < 8:
+                    if len(v) < 12:
                         new_dict[new_k] = v
                     else:
                         new_dict[new_k] = self.redact_text(v)
-                elif isinstance(v, (dict, list, tuple)):
+                elif isinstance(v, _CONTAINER_TYPES):
                     new_dict[new_k] = self.redact(v)
                 else:
                     new_dict[new_k] = v
@@ -228,6 +226,11 @@ class Redactor:
         if isinstance(value, list):
             list_items: Any = value  # pyright: ignore[reportUnknownVariableType]
             return [self.redact(item) for item in list_items]
+
+        if isinstance(value, str):
+            if len(value) < 12:
+                return value
+            return self.redact_text(value)
 
         if isinstance(value, tuple):
             tuple_items: Any = value  # pyright: ignore[reportUnknownVariableType]

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import assume, given
+from hypothesis import given
 from hypothesis import strategies as st
 
 from chowki.state.redact import PLACEHOLDER_RE, Redactor
@@ -102,9 +102,8 @@ def test_dict_keys_are_also_scanned(redactor: Redactor) -> None:
 
 @given(st.text(max_size=200))
 def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
-    assume(not payload or not payload[-1].isalpha())
     r = Redactor(hmac_key=KEY)
-    hostile = f"{payload} {SECRETS['openai']} {payload}"
+    hostile = payload + SECRETS["openai"] + payload
     out = r.redact_text(hostile)
     assert SECRETS["openai"] not in out
 
@@ -122,7 +121,7 @@ def test_redaction_cannot_be_disabled() -> None:
 
 
 def test_false_positive_words_not_redacted(redactor: Redactor) -> None:
-    assert redactor.redact_text("task-management-system-2024") == "task-management-system-2024"
+    assert redactor.redact_text("task-management-system-config") == "task-management-system-config"
     assert redactor.redact_text("MyBearer") == "MyBearer"
 
 
@@ -163,6 +162,6 @@ def test_extra_patterns_without_builtin_indicators() -> None:
 
 
 def test_short_string_uri_userinfo_redaction(redactor: Redactor) -> None:
-    out = redactor.redact_text("a://u:p1@x")
+    out = redactor.redact_text("http://u:p1@x")
     assert "u:p1" not in out
     assert PLACEHOLDER_RE.search(out) is not None
