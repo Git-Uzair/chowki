@@ -1622,10 +1622,9 @@ Run the unit tests and confirm `ModuleNotFoundError: No module named
 **Status:** COMPLETED (VERDICT: PASS)
 
 **Executor Notes:**
-- Layer 1 patterns use `(?<![A-Za-z])` negative lookbehinds for secret prefixes so digits preceding secrets (e.g. `0sk-`) are redacted while words like `task-management` are preserved.
-- `test_redaction_never_raises_and_never_leaks` uses `assume(not payload or not payload[-1].isalpha())` to filter out concatenated letters directly preceding `sk-`.
-- `extra_patterns` are always scanned by layer 1; short-circuit threshold is `len(text) < 8`.
-- `_safe_text_cache` caches only non-secret strings (where `res == text`) to satisfy the performance budget without caching secrets in memory.
+- Layer 1 patterns omit prefix lookbehinds so secrets embedded in arbitrary string concatenations (e.g. `aaaask-A1b2...`) are redacted, with `(?![a-z\-]+$)` excluding pure lowercase hyphenated text.
+- `test_redaction_never_raises_and_never_leaks` tests un-padded secret concatenation for all Hypothesis inputs without filtering.
+- Short-circuit threshold is `len(text) < 12`; `_safe_text_cache` caches only non-secret strings (where `res == text`) to satisfy the performance budget without caching secrets in memory.
 
 **Goal:** ADR-003 layer 1 (compiled regex) and layer 2 (Shannon entropy) applied to the
 whole state tree before anything is serialised, within a 0.8 ms / 1 MiB budget.
