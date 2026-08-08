@@ -28,10 +28,12 @@ REQUIRED_FILES = [
     "README.md",
     "node/README.md",
     "spec/README.md",
+    "scripts/check_layout.py",
 ]
 
 EXCLUDED_DIR_NAMES = {
     ".git",
+    ".worktrees",
     ".venv",
     "node_modules",
     ".chowki",
@@ -82,12 +84,23 @@ BINARY_SUFFIXES = {
 BANNED_WORD = "check" + "point"  # split so this guard never trips on itself
 
 
+def decode_text(raw: bytes) -> str | None:
+    for encoding in ("utf-8", "utf-16", "latin-1"):
+        try:
+            text = raw.decode(encoding)
+            if "\x00" not in text:
+                return text
+        except (UnicodeDecodeError, ValueError):
+            continue
+    return None
+
+
 def is_binary(path: Path) -> bool:
     if path.suffix.lower() in BINARY_SUFFIXES:
         return True
     try:
-        chunk = path.read_bytes()[:8192]
-        return b"\x00" in chunk
+        raw = path.read_bytes()
+        return decode_text(raw) is None
     except Exception:
         return True
 
@@ -126,15 +139,18 @@ def main() -> int:
             continue
 
         raw = path.read_bytes()
-        text = raw.decode("utf-8", errors="ignore")
+        text = decode_text(raw)
+        if text is None:
+            continue
+
         if BANNED_WORD in text.lower():
             failures.append(f"banned product term in {rel_path}")
 
-        if not raw.endswith(b"\n"):
+        if not text.endswith("\n"):
             failures.append(f"missing trailing newline: {rel_path}")
         else:
-            stripped = raw[:-2] if raw.endswith(b"\r\n") else raw[:-1]
-            if stripped.endswith(b"\n") or stripped.endswith(b"\r"):
+            stripped = text[:-2] if text.endswith("\r\n") else text[:-1]
+            if stripped.endswith("\n") or stripped.endswith("\r"):
                 failures.append(f"multiple trailing newlines: {rel_path}")
 
     for line in failures:

@@ -170,6 +170,7 @@ def test_check_layout_ignores_excluded_directories(
     banned = "check" + "point"
     for excluded in (
         ".git",
+        ".worktrees",
         ".venv",
         "node_modules",
         ".chowki",
@@ -207,7 +208,9 @@ def test_check_layout_detects_bare_cr_trailing_newline(
 
 
 def test_check_layout_scans_script_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """scripts/check_layout.py itself is not exempted from checks."""
+    """scripts/check_layout.py is required and scanned during layout checks."""
+    assert "scripts/check_layout.py" in check_layout.REQUIRED_FILES
+
     monkeypatch.setattr(check_layout, "ROOT", tmp_path)
     for d in check_layout.REQUIRED_DIRS:
         (tmp_path / d).mkdir(parents=True, exist_ok=True)
@@ -217,7 +220,30 @@ def test_check_layout_scans_script_path(tmp_path: Path, monkeypatch: pytest.Monk
 
     banned = "check" + "point"
     script_file = tmp_path / "scripts" / "check_layout.py"
-    script_file.parent.mkdir(parents=True, exist_ok=True)
     script_file.write_bytes(f"banned = '{banned}'\n".encode())
 
+    assert check_layout.main() == 1
+
+
+def test_check_layout_supports_utf16_text_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """UTF-16 text files with NUL bytes are handled and checked for banned terms and newlines."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_bytes(b"content\n")
+
+    utf16_file = tmp_path / "powershell_output.txt"
+    utf16_file.write_bytes("clean content\n".encode("utf-16le"))
+
+    assert check_layout.main() == 0
+
+    banned = "check" + "point"
+    utf16_file.write_bytes(f"banned {banned} here\n".encode("utf-16le"))
+    assert check_layout.main() == 1
+
+    utf16_file.write_bytes("no trailing newline".encode("utf-16le"))
     assert check_layout.main() == 1
