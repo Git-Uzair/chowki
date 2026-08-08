@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from chowki.state.redact import PLACEHOLDER_RE, Redactor
@@ -10,7 +10,7 @@ from chowki.state.redact import PLACEHOLDER_RE, Redactor
 KEY = b"unit-test-hmac-key"
 
 SECRETS = {
-    "openai": "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4",
+    "openai": "sk-" + "A1b2C3d4E5f6G7h8I9j0",
     "openai_project": "sk-proj-" + "x" * 45,
     "anthropic": "sk-ant-" + "y" * 45,
     "aws_access": "AKIAIOSFODNN7EXAMPLE",
@@ -102,8 +102,9 @@ def test_dict_keys_are_also_scanned(redactor: Redactor) -> None:
 
 @given(st.text(max_size=200))
 def test_redaction_never_raises_and_never_leaks(payload: str) -> None:
+    assume(not payload or not payload[-1].isalpha())
     r = Redactor(hmac_key=KEY)
-    hostile = f"{payload} {SECRETS['openai']} {payload}"
+    hostile = payload + SECRETS["openai"] + payload
     out = r.redact_text(hostile)
     assert SECRETS["openai"] not in out
 
@@ -123,6 +124,16 @@ def test_redaction_cannot_be_disabled() -> None:
 def test_false_positive_words_not_redacted(redactor: Redactor) -> None:
     assert redactor.redact_text("task-management-system-2024") == "task-management-system-2024"
     assert redactor.redact_text("MyBearer") == "MyBearer"
+
+
+def test_digit_preceding_secret_is_redacted(redactor: Redactor) -> None:
+    secret = "0sk-A1b2C3d4E5f6G7h8I9j00"
+    out = redactor.redact_text(secret)
+    assert "sk-A1b2C3d4E5f6G7h8I9j00" not in out
+
+    aws = "1AKIAIOSFODNN7EXAMPLE"
+    out_aws = redactor.redact_text(aws)
+    assert "AKIAIOSFODNN7EXAMPLE" not in out_aws
 
 
 @pytest.mark.parametrize("name", sorted(SECRETS))

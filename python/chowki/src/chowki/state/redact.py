@@ -26,11 +26,11 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
         r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
     ),
     ("jwt", r"(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
-    ("openai_proj", r"(?<![A-Za-z0-9])sk-proj-[A-Za-z0-9\-_]{40,}"),
-    ("anthropic", r"(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"(?<![A-Za-z0-9])sk-[A-Za-z0-9\-_]{20,}"),
+    ("openai_proj", r"(?<![A-Za-z])sk-proj-[A-Za-z0-9\-_]{40,}"),
+    ("anthropic", r"(?<![A-Za-z])sk-ant-[A-Za-z0-9\-_]{40,}"),
+    ("openai", r"(?<![A-Za-z])sk-[A-Za-z0-9\-_]{20,}"),
     ("stripe", r"(?<![A-Za-z0-9])(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
-    ("aws_access", r"(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("aws_access", r"(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
     ("github", r"(?<![A-Za-z0-9])ghp_[A-Za-z0-9]{36}\b"),
     ("slack", r"(?<![A-Za-z0-9])xox[baprs]-[A-Za-z0-9\-]{10,}"),
@@ -76,7 +76,7 @@ def _is_safe(token: str) -> bool:
         return True
     if _is_number(token):
         return True
-    return token.startswith("REDACTED")
+    return token.startswith("REDACTED:")
 
 
 def _shannon(token: str) -> float:
