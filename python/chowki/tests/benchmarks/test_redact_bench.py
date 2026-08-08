@@ -11,9 +11,18 @@ from chowki.state.redact import Redactor
 
 def _one_mib_state() -> dict[str, object]:
     """~1 MiB of realistic agent state: a long message history, no secrets."""
-    message = {"role": "assistant", "content": "The analysis shows a stable trend. " * 12}
-    unit = len(json.dumps(message).encode())
-    return {"messages": [dict(message) for _ in range(1_048_576 // unit)]}
+    unit = len(
+        json.dumps(
+            {"role": "assistant", "content": "The analysis shows a stable trend 0000. " * 12}
+        ).encode()
+    )
+    count = 1_048_576 // unit
+    return {
+        "messages": [
+            {"role": "assistant", "content": f"The analysis shows a stable trend {i:04d}. " * 12}
+            for i in range(count)
+        ]
+    }
 
 
 @pytest.mark.benchmark

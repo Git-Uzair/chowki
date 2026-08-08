@@ -35,8 +35,8 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
     ("github", r"ghp_[A-Za-z0-9]{36}\b"),
     ("slack", r"xox[baprs]-[A-Za-z0-9\-]{10,}"),
-    ("bearer", r"\bBearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
-    ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
+    ("bearer", r"\bBearer\s+(?![a-z]+\b)[A-Za-z0-9\-._~+/]{10,}=*"),
+    ("basic", r"\bBasic\s+(?![a-z]+\b)[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
@@ -147,7 +147,11 @@ class Redactor:
             return cached
 
         has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(text) is not None)
-        has_candidate = self.enable_entropy and (_CANDIDATE.search(text) is not None)
+        has_candidate = (
+            self.enable_entropy
+            and (_HAS_DIGIT.search(text) is not None)
+            and (_CANDIDATE.search(text) is not None)
+        )
 
         if not has_ind and not has_candidate:
             if len(self._safe_text_cache) < 10_000:

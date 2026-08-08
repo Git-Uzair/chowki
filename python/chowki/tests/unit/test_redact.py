@@ -55,11 +55,10 @@ def test_high_entropy_unknown_token_is_redacted(redactor: Redactor) -> None:
     assert unknown not in out
 
 
-def test_high_entropy_symbol_token_without_digits_is_redacted(redactor: Redactor) -> None:
+def test_high_entropy_token_without_digits_skips_entropy_redaction(redactor: Redactor) -> None:
     unknown = "aB+cD=eF#gH$jK%mL&nP*qR@sT"
     out = redactor.redact_text(f"token={unknown}")
-    assert unknown not in out
-    assert PLACEHOLDER_RE.search(out) is not None
+    assert out == f"token={unknown}"
 
 
 @pytest.mark.parametrize(
@@ -123,6 +122,13 @@ def test_redaction_cannot_be_disabled() -> None:
 def test_false_positive_words_not_redacted(redactor: Redactor) -> None:
     assert redactor.redact_text("task-management-system-config") == "task-management-system-config"
     assert redactor.redact_text("MyBearer") == "MyBearer"
+
+
+def test_bearer_and_basic_prose_words_not_redacted(redactor: Redactor) -> None:
+    t1 = "Use Bearer authentication for the API"
+    t2 = "Configure Basic authentication settings today"
+    assert redactor.redact_text(t1) == t1
+    assert redactor.redact_text(t2) == t2
 
 
 def test_prose_with_sk_words_in_sentences_not_redacted(redactor: Redactor) -> None:
