@@ -72,3 +72,5 @@ jobs:
       - run: uv sync --locked --all-extras --dev
       - name: Assert hot-path budgets
         run: uv run pytest python/chowki/tests/benchmarks --benchmark-only -q
+      # TODO(phase-2): spec drift detection once spec/scripts codegen exists (ADR-001).
+      # - run: uv run python spec/scripts/generate.py && git diff --exit-code
