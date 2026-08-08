@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  static:
+    name: Lint and static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # hatch-vcs needs full history for versioning
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked --all-extras --dev
+      - name: Layout and product-name guard
+        run: python scripts/check_layout.py
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check (pyright, primary)
+        run: uv run pyright
+      - name: Type check (mypy, secondary)
+        run: uv run mypy python/chowki/src
+
+  test:
+    name: Test py${{ matrix.python-version }} on ${{ matrix.os }}
+    needs: static
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv sync --locked --all-extras --dev
+      - name: Unit and property tests
+        run: uv run pytest python/chowki/tests/unit -q
+      - name: Integration tests
+        run: uv run pytest python/chowki/tests/integration -q
+
+  benchmarks:
+    name: Performance budgets
+    needs: static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked --all-extras --dev
+      - name: Assert hot-path budgets
+        run: uv run pytest python/chowki/tests/benchmarks --benchmark-only -q

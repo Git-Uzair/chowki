@@ -1,0 +1,26 @@
+# Note: This release workflow is unexercised in Phase 1 (Foundation / MVP).
+name: Release Chowki to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  pypi-publish:
+    name: Build and publish Python SDK
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Mandatory for OIDC authentication with PyPI
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for hatch-vcs tag discovery
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Build wheel and sdist
+        run: uv build --package chowki
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/chowki/dist/
