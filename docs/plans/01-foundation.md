@@ -1622,7 +1622,7 @@ Run the unit tests and confirm `ModuleNotFoundError: No module named
 **Status:** COMPLETED (VERDICT: PASS)
 
 **Executor Notes:**
-- Layer 1 patterns use `(?<![A-Za-z0-9])` negative lookbehinds for secret prefixes to avoid false positives on words like `task-management`.
+- Layer 1 patterns use `(?<![A-Za-z])` negative lookbehinds for secret prefixes so digits preceding secrets (e.g. `0sk-`) are redacted while words like `task-management` are preserved.
 - `_safe_text_cache` caches only non-secret strings (where `res == text`) to satisfy the performance budget without caching secrets in memory.
 
 **Goal:** ADR-003 layer 1 (compiled regex) and layer 2 (Shannon entropy) applied to the
