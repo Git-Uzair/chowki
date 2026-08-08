@@ -40,3 +40,24 @@ def test_a_string_that_looks_like_a_ref_is_escaped() -> None:
     hostile = BLOB_REF_PREFIX + "0" * 64
     stripped = extract_blobs({"a": hostile}, store, threshold_bytes=4096)
     assert inline_blobs(stripped, store) == {"a": hostile}
+
+
+def test_escape_prefix_string_round_trips() -> None:
+    """User data starting with ESCAPE_PREFIX (ref-lit:) must round-trip accurately."""
+    store = BlobStore()
+    literal_ref = "ref-lit:hello"
+    stripped = extract_blobs({"a": literal_ref}, store, threshold_bytes=4096)
+    assert inline_blobs(stripped, store) == {"a": literal_ref}
+
+
+def test_lone_surrogates_handling() -> None:
+    """Strings containing lone surrogates do not raise UnicodeEncodeError and round-trip."""
+    store = BlobStore()
+    surrogate_small = "hello_\ud800_world"
+    surrogate_large = "\ud800" + "X" * 5000
+
+    stripped_small = extract_blobs({"a": surrogate_small}, store, threshold_bytes=4096)
+    assert inline_blobs(stripped_small, store) == {"a": surrogate_small}
+
+    stripped_large = extract_blobs({"a": surrogate_large}, store, threshold_bytes=4096)
+    assert inline_blobs(stripped_large, store) == {"a": surrogate_large}

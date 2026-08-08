@@ -45,9 +45,9 @@ def extract_blobs(value: object, store: BlobStore, *, threshold_bytes: int = 409
     # TODO(phase-2): extract large sub-objects, not only strings
     """
     if isinstance(value, str):
-        if value.startswith(BLOB_REF_PREFIX):
+        if value.startswith((BLOB_REF_PREFIX, ESCAPE_PREFIX)):
             return ESCAPE_PREFIX + value
-        data = value.encode("utf-8")
+        data = value.encode("utf-8", errors="surrogatepass")
         if len(data) > threshold_bytes:
             return store.put(data)
         return value
@@ -69,7 +69,7 @@ def inline_blobs(value: object, store: BlobStore) -> Any:
         if value.startswith(ESCAPE_PREFIX):
             return value[len(ESCAPE_PREFIX) :]
         if value.startswith(BLOB_REF_PREFIX):
-            return store.get(value).decode("utf-8")
+            return store.get(value).decode("utf-8", errors="surrogatepass")
         return value
     if isinstance(value, dict):
         d = cast(dict[str, Any], value)
