@@ -27,21 +27,21 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
         r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
     ),
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
-    ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
-    ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
-    ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
-    ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("openai_proj", r"(?<![A-Za-z])sk-proj-[A-Za-z0-9\-_]{40,}"),
+    ("anthropic", r"(?<![A-Za-z])sk-ant-[A-Za-z0-9\-_]{40,}"),
+    ("openai", r"(?<![A-Za-z])sk-[A-Za-z0-9\-_]{20,}"),
+    ("stripe", r"(?<![A-Za-z])(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
+    ("aws_access", r"(?<![A-Za-z])(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
-    ("github", r"\bghp_[A-Za-z0-9]{36}\b"),
-    ("slack", r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"),
+    ("github", r"(?<![A-Za-z])ghp_[A-Za-z0-9]{36}\b"),
+    ("slack", r"(?<![A-Za-z])xox[baprs]-[A-Za-z0-9\-]{10,}"),
     ("bearer", r"\bBearer\s+[A-Za-z0-9\-._~+/]{10,}=*"),
     ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
 _HAS_INDICATOR: Final = re.compile(
-    r"-----|eyJ|\bsk-|\bsk_|\bpk_|\bAKIA|\bASIA|aws_secret|\bghp_|\bxox|\bBearer|\bBasic|://"
+    r"-----|eyJ|(?<![A-Za-z])sk-|(?<![A-Za-z])sk_|(?<![A-Za-z])pk_|(?<![A-Za-z])AKIA|(?<![A-Za-z])ASIA|aws_secret|(?<![A-Za-z])ghp_|(?<![A-Za-z])xox|\bBearer|\bBasic|://"
 )
 
 _SENSITIVE_KEY: Final = re.compile(
@@ -68,19 +68,6 @@ def _is_number(s: str) -> bool:
 
 def _is_safe(token: str) -> bool:
     if "/" in token or "\\" in token:
-        return True
-    if not (
-        "0" in token
-        or "1" in token
-        or "2" in token
-        or "3" in token
-        or "4" in token
-        or "5" in token
-        or "6" in token
-        or "7" in token
-        or "8" in token
-        or "9" in token
-    ):
         return True
     if _PROSE_RE.match(token) is not None:
         return True
@@ -156,28 +143,7 @@ class Redactor:
         if cached is not None:
             return cached
 
-        if not self._has_extra_patterns and not (
-            "-" in text
-            or "_" in text
-            or ":" in text
-            or "AKIA" in text
-            or "ASIA" in text
-            or "xox" in text
-            or "eyJ" in text
-            or "Bearer" in text
-            or "Basic" in text
-            or "0" in text
-            or "1" in text
-            or "2" in text
-            or "3" in text
-            or "4" in text
-            or "5" in text
-            or "6" in text
-            or "7" in text
-            or "8" in text
-            or "9" in text
-            or "[REDACTED:" in text
-        ):
+        if _PROSE_RE.match(text) is not None:
             if len(self._safe_text_cache) < 10_000:
                 self._safe_text_cache[text] = text
             return text
@@ -193,18 +159,6 @@ class Redactor:
             or "Bearer" in text
             or "Basic" in text
             or "-----" in text
-        )
-        has_digit = (
-            "0" in text
-            or "1" in text
-            or "2" in text
-            or "3" in text
-            or "4" in text
-            or "5" in text
-            or "6" in text
-            or "7" in text
-            or "8" in text
-            or "9" in text
         )
 
         placeholders: list[str] = []
@@ -230,7 +184,7 @@ class Redactor:
         if has_ind:
             res = self._combined_re.sub(self._sub_layer1, res)
 
-        if self.enable_entropy and has_digit:
+        if self.enable_entropy:
             if len(res) > self.entropy_max_scan_bytes:
                 logger.debug(
                     "redact_entropy_skipped_large_string",
