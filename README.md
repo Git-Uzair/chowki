@@ -14,9 +14,11 @@ uv add chowki
 ```python
 import chowki
 
+
 @chowki.step
 def process_data(item: str) -> str:
     return f"processed {item}"
+
 
 @chowki.workflow
 def my_workflow(items: list[str]) -> list[str]:
@@ -24,6 +26,7 @@ def my_workflow(items: list[str]) -> list[str]:
     for item in items:
         results.append(process_data(item))
     return results
+
 
 if __name__ == "__main__":
     result = chowki.resume("wf_123", fn=my_workflow, items=["a", "b"])

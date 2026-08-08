@@ -287,12 +287,13 @@ import pytest
 from hypothesis import given, strategies as st
 from chowki.core.redact import redact_secrets
 
+
 @given(st.dictionaries(keys=st.text(min_size=1), values=st.text()))
 def test_redact_secrets_never_leaks_api_keys(state_dict: dict[str, str]):
     # Inject a secret key
     state_dict["api_key"] = "sk-live-1234567890secret"
     redacted = redact_secrets(state_dict)
-    
+
     assert redacted["api_key"] == "[REDACTED]"
     assert "sk-live-1234567890secret" not in str(redacted)
 ```
@@ -307,6 +308,7 @@ To guarantee zero-overhead state persistence, benchmarks run under CodSpeed simu
 # python/chowki/tests/benchmarks/test_state_capture_perf.py
 import pytest
 from chowki.core.state import capture_state
+
 
 @pytest.mark.benchmark
 def test_warm_resume_capture_performance(benchmark):
@@ -329,6 +331,7 @@ def test_warm_resume_capture_performance(benchmark):
 # python/chowki/src/chowki/telemetry/logging.py
 import sys
 import structlog
+
 
 def configure_logging(environment: str = "production", log_level: str = "INFO") -> None:
     shared_processors = [
@@ -367,20 +370,18 @@ tracer = trace.get_tracer("chowki.sdk", "0.1.0")
 meter = metrics.get_meter("chowki.sdk", "0.1.0")
 
 state_save_counter = meter.create_counter(
-    "chowki.state.save.count",
-    description="Total state capture operations",
-    unit="1"
+    "chowki.state.save.count", description="Total state capture operations", unit="1"
 )
 state_bytes_histogram = meter.create_histogram(
-    "chowki.state.size.bytes",
-    description="Serialized state snapshot payload size",
-    unit="By"
+    "chowki.state.size.bytes", description="Serialized state snapshot payload size", unit="By"
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+
 def trace_step(step_name: str) -> Callable[[F], F]:
     """Decorator for tracing agent step boundaries and persisting state snapshots."""
+
     def decorator(func: F) -> F:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             logger = structlog.get_logger()
@@ -398,7 +399,9 @@ def trace_step(step_name: str) -> Callable[[F], F]:
                     state_save_counter.add(1, {"step": step_name, "status": "error"})
                     logger.error("chowki_step_failed", step_name=step_name, error=str(exc))
                     raise
-        return wrapper # type: ignore
+
+        return wrapper  # type: ignore
+
     return decorator
 ```
 

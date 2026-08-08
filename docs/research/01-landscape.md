@@ -173,6 +173,3 @@ The table below synthesizes how `chowki` compares across key capability dimensio
 3. **Zero-Waste Warm Resume:** Traditional replay engines (Temporal) re-execute or re-simulate entire history logs upon restart. `chowki` snapshotting enables instant, zero-waste warm resume, bypassing redundant LLM and tool execution costs.
 4. **Active Agent Control Plane vs Passive Observability:** Tools like Langfuse, Arize Phoenix, and AgentOps provide passive read-only telemetry. `chowki` fills the missing operational gap by serving as an active control plane capable of pausing, inspecting, modifying, and resuming agent state in real time.
 5. **Package Namespace Security:** Both `chowki` on PyPI and `@chowki` / `chowki` on npm are verified as available, ensuring clear branding and distribution paths.
-
-
-

@@ -947,9 +947,15 @@ def test_envelope_roundtrips_through_msgpack() -> None:
 
 def test_envelope_is_frozen() -> None:
     env = SnapshotEnvelope(
-        v=SCHEMA_VERSION, run_id="r", workflow="w", tenant_id="t", step_index=0,
-        kind=SnapshotKind.BASE, created_at_utc="2026-08-08T06:00:00Z",
-        state_hash="sha256:" + "0" * 64, payload=b"",
+        v=SCHEMA_VERSION,
+        run_id="r",
+        workflow="w",
+        tenant_id="t",
+        step_index=0,
+        kind=SnapshotKind.BASE,
+        created_at_utc="2026-08-08T06:00:00Z",
+        state_hash="sha256:" + "0" * 64,
+        payload=b"",
     )
     with pytest.raises(AttributeError):
         env.step_index = 9  # type: ignore[misc]
@@ -958,9 +964,19 @@ def test_envelope_is_frozen() -> None:
 def test_envelope_field_order_is_pinned() -> None:
     """Wire compatibility: reordering fields silently breaks stored snapshots."""
     assert [f.name for f in msgspec.structs.fields(SnapshotEnvelope)] == [
-        "v", "run_id", "workflow", "tenant_id", "step_index", "kind",
-        "created_at_utc", "state_hash", "payload", "parent_hash", "key_id",
-        "nonce", "codec",
+        "v",
+        "run_id",
+        "workflow",
+        "tenant_id",
+        "step_index",
+        "kind",
+        "created_at_utc",
+        "state_hash",
+        "payload",
+        "parent_hash",
+        "key_id",
+        "nonce",
+        "codec",
     ]
 
 
@@ -977,8 +993,12 @@ def test_usage_accumulates() -> None:
 
 def test_step_record_defaults() -> None:
     rec = StepRecord(
-        run_id="r", step_id="fetch#0", name="fetch", ordinal=0,
-        idempotency_key="k", args_hash="sha256:" + "1" * 64,
+        run_id="r",
+        step_id="fetch#0",
+        name="fetch",
+        ordinal=0,
+        idempotency_key="k",
+        args_hash="sha256:" + "1" * 64,
         started_at_utc="2026-08-08T06:00:00Z",
     )
     assert rec.status is StepStatus.PENDING
@@ -988,10 +1008,14 @@ def test_step_record_defaults() -> None:
 
 def test_run_record_and_pause_roundtrip() -> None:
     run = RunRecord(
-        run_id="r", workflow="w", tenant_id="t",
-        created_at_utc="2026-08-08T06:00:00Z", updated_at_utc="2026-08-08T06:00:00Z",
+        run_id="r",
+        workflow="w",
+        tenant_id="t",
+        created_at_utc="2026-08-08T06:00:00Z",
+        updated_at_utc="2026-08-08T06:00:00Z",
         pause=PauseRequest(
-            step_id="approve#0", reason="human approval",
+            step_id="approve#0",
+            reason="human approval",
             permitted_actions=("APPROVE", "REJECT", "EDIT"),
             payload={"amount": 5000},
         ),
@@ -1088,10 +1112,20 @@ class ChowkiError(Exception):
 
 
 class ChowkiConfigError(ChowkiError): ...
+
+
 class ChowkiStorageError(ChowkiError): ...
+
+
 class ChowkiStateError(ChowkiError): ...
+
+
 class SchemaVersionError(ChowkiStateError): ...
+
+
 class SnapshotIntegrityError(ChowkiStateError): ...
+
+
 class DecryptionError(ChowkiStateError): ...
 
 
@@ -1152,8 +1186,14 @@ class HumanRejectedError(ChowkiError):
 
 
 class ResumeTokenError(ChowkiError): ...
+
+
 class ExpiredResumeToken(ResumeTokenError): ...
+
+
 class InvalidResumeToken(ResumeTokenError): ...
+
+
 class ReplayedNonceError(ResumeTokenError): ...
 
 
@@ -1427,9 +1467,11 @@ def test_non_bmp_keys_sort_by_utf16_code_units() -> None:
 
 @given(
     st.recursive(
-        st.none() | st.booleans() | st.integers(-10**9, 10**9) | st.text(max_size=20),
-        lambda children: st.lists(children, max_size=5)
-        | st.dictionaries(st.text(min_size=1, max_size=10), children, max_size=5),
+        st.none() | st.booleans() | st.integers(-(10**9), 10**9) | st.text(max_size=20),
+        lambda children: (
+            st.lists(children, max_size=5)
+            | st.dictionaries(st.text(min_size=1, max_size=10), children, max_size=5)
+        ),
         max_leaves=20,
     )
 )
@@ -1633,12 +1675,12 @@ def test_high_entropy_unknown_token_is_redacted(redactor: Redactor) -> None:
 @pytest.mark.parametrize(
     "safe",
     [
-        "550e8400-e29b-41d4-a716-446655440000",       # UUID
-        "a" * 64,                                      # sha256 hex
-        "e3b0c44298fc1c149afbf4c8996fb924",            # md5-ish hex
-        "/usr/local/lib/python3.11/site-packages",     # path
-        "https://example.com/docs/getting-started",    # url path
-        "The quick brown fox jumps over the lazy dog", # prose
+        "550e8400-e29b-41d4-a716-446655440000",  # UUID
+        "a" * 64,  # sha256 hex
+        "e3b0c44298fc1c149afbf4c8996fb924",  # md5-ish hex
+        "/usr/local/lib/python3.11/site-packages",  # path
+        "https://example.com/docs/getting-started",  # url path
+        "The quick brown fox jumps over the lazy dog",  # prose
     ],
 )
 def test_safe_patterns_are_not_redacted(redactor: Redactor, safe: str) -> None:
@@ -1649,8 +1691,8 @@ def test_placeholder_is_deterministic_and_blinded(redactor: Redactor) -> None:
     a = redactor.redact_text(SECRETS["openai"])
     b = redactor.redact_text(SECRETS["openai"])
     c = redactor.redact_text(SECRETS["github"])
-    assert a == b            # same secret -> same placeholder: diffs stay readable
-    assert a != c            # different secrets never collide
+    assert a == b  # same secret -> same placeholder: diffs stay readable
+    assert a != c  # different secrets never collide
     assert "A1b2C3d4" not in a
 
 
@@ -1658,7 +1700,7 @@ def test_redaction_is_recursive_and_non_mutating(redactor: Redactor) -> None:
     original = {"outer": {"list": [{"k": SECRETS["openai"]}]}, "n": 1}
     snapshot = {"outer": {"list": [{"k": SECRETS["openai"]}]}, "n": 1}
     out = redactor.redact(original)
-    assert original == snapshot                      # input untouched
+    assert original == snapshot  # input untouched
     assert SECRETS["openai"] not in str(out)
     assert out["n"] == 1
 
@@ -1724,8 +1766,10 @@ Run and confirm `ModuleNotFoundError: No module named 'chowki.state.redact'`.
 
 ```python
 _PATTERNS: Final[tuple[tuple[str, str], ...]] = (
-    ("private_key",
-     r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----"),
+    (
+        "private_key",
+        r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
+    ),
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
     ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
     ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
@@ -1739,9 +1783,7 @@ _PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     ("basic", r"\bBasic\s+[A-Za-z0-9+/]{10,}={0,2}"),
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
-_COMBINED: Final = re.compile(
-    "|".join(f"(?P<{name}>{pat})" for name, pat in _PATTERNS)
-)
+_COMBINED: Final = re.compile("|".join(f"(?P<{name}>{pat})" for name, pat in _PATTERNS))
 ```
 
    Ordering matters and is load-bearing: `openai_proj` and `anthropic` precede `openai`,
@@ -1872,16 +1914,18 @@ def test_seal_produces_a_versioned_envelope_with_a_matching_hash() -> None:
 def test_unseal_detects_a_tampered_payload() -> None:
     from chowki.errors import SnapshotIntegrityError
 
-    env = seal({"a": 1}, run_id="r", workflow="w", tenant_id="t", step_index=0,
-               kind=SnapshotKind.BASE)
+    env = seal(
+        {"a": 1}, run_id="r", workflow="w", tenant_id="t", step_index=0, kind=SnapshotKind.BASE
+    )
     tampered = msgspec_replace(env, payload=encode_state({"a": 2}))
     with pytest.raises(SnapshotIntegrityError):
         unseal(tampered)
 
 
 def test_unseal_rejects_a_future_schema_version() -> None:
-    env = seal({"a": 1}, run_id="r", workflow="w", tenant_id="t", step_index=0,
-               kind=SnapshotKind.BASE)
+    env = seal(
+        {"a": 1}, run_id="r", workflow="w", tenant_id="t", step_index=0, kind=SnapshotKind.BASE
+    )
     future = msgspec_replace(env, v=SCHEMA_VERSION + 5)
     with pytest.raises(SchemaVersionError, match="newer"):
         unseal(future)
@@ -1990,6 +2034,7 @@ def register_migration(*, from_version: int) -> Callable[[Migration], Migration]
             raise ValueError(f"migration from v{from_version} already registered")
         MIGRATIONS[from_version] = fn
         return fn
+
     return decorator
 
 
@@ -2055,8 +2100,10 @@ from chowki.state.delta import (
 
 def test_patch_captures_an_appended_message() -> None:
     before = {"messages": [{"role": "user", "content": "hi"}], "step": 1}
-    after = {"messages": [{"role": "user", "content": "hi"},
-                          {"role": "assistant", "content": "hello"}], "step": 2}
+    after = {
+        "messages": [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}],
+        "step": 2,
+    }
     patch = make_patch(before, after)
     assert patch
     assert apply_patch(before, patch) == after
@@ -2090,8 +2137,10 @@ def test_test_op_guards_optimistic_concurrency() -> None:
     from chowki.errors import ChowkiStateError
 
     base = {"status": "PENDING"}
-    guarded = [{"op": "test", "path": "/status", "value": "PENDING"},
-               {"op": "replace", "path": "/status", "value": "APPROVED"}]
+    guarded = [
+        {"op": "test", "path": "/status", "value": "PENDING"},
+        {"op": "replace", "path": "/status", "value": "APPROVED"},
+    ]
     assert apply_patch(base, guarded) == {"status": "APPROVED"}
 
     with pytest.raises(ChowkiStateError):
@@ -2199,8 +2248,8 @@ class DeltaChain:
     def depth(self) -> int:
         return len(self.patches)
 
-    def append(self, patch: Patch) -> None: ...       # also accumulates delta_bytes
-    def materialize(self) -> JSONValue: ...           # fold apply_patch over patches
+    def append(self, patch: Patch) -> None: ...  # also accumulates delta_bytes
+    def materialize(self) -> JSONValue: ...  # fold apply_patch over patches
     def needs_compaction(self, base_bytes: int) -> bool: ...
 ```
 
@@ -2477,12 +2526,11 @@ def test_no_keyring_means_no_encryption_metadata() -> None:
 def test_compaction_forces_a_new_base_at_depth_50() -> None:
     pipe = make_pipeline()
     kinds = [
-        pipe.snapshot({"n": i}, run_id="r", workflow="w", step_index=i).kind
-        for i in range(52)
+        pipe.snapshot({"n": i}, run_id="r", workflow="w", step_index=i).kind for i in range(52)
     ]
     assert kinds[0] is SnapshotKind.BASE
     assert kinds[1] is SnapshotKind.DELTA
-    assert kinds[51] is SnapshotKind.BASE      # chain reset after 50 deltas
+    assert kinds[51] is SnapshotKind.BASE  # chain reset after 50 deltas
     assert pipe.restore(run_id="r") == {"n": 51}
 
 
@@ -2550,7 +2598,9 @@ def test_full_snapshot_1mib_within_total_budget(benchmark, assert_budget) -> Non
 @pytest.mark.benchmark
 def test_dispatch_is_off_the_hot_path(benchmark, assert_budget) -> None:
     pipe = SnapshotPipeline(
-        redactor=Redactor(hmac_key=b"bench"), blobs=BlobStore(), tenant_id="t1",
+        redactor=Redactor(hmac_key=b"bench"),
+        blobs=BlobStore(),
+        tenant_id="t1",
     )
     env = pipe.snapshot({"a": 1}, run_id="r", workflow="w", step_index=0)
     benchmark(pipe.dispatch, env)
@@ -2687,8 +2737,7 @@ from chowki.types import RunRecord, RunStatus, SnapshotKind, StepRecord, StepSta
 @pytest.fixture(params=["memory", "sqlite"])
 def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[StorageAdapter]:
     adapter: StorageAdapter = (
-        MemoryStorage() if request.param == "memory"
-        else SQLiteStorage(tmp_path / "chowki.db")
+        MemoryStorage() if request.param == "memory" else SQLiteStorage(tmp_path / "chowki.db")
     )
     yield adapter
     adapter.close()
@@ -2696,8 +2745,11 @@ def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[StorageAda
 
 def _run(run_id: str = "r1") -> RunRecord:
     return RunRecord(
-        run_id=run_id, workflow="demo", tenant_id="t1",
-        created_at_utc="2026-08-08T06:00:00Z", updated_at_utc="2026-08-08T06:00:00Z",
+        run_id=run_id,
+        workflow="demo",
+        tenant_id="t1",
+        created_at_utc="2026-08-08T06:00:00Z",
+        updated_at_utc="2026-08-08T06:00:00Z",
     )
 
 
@@ -2734,19 +2786,33 @@ def test_steps_are_ordered_by_ordinal(store: StorageAdapter) -> None:
     store.put_run(_run())
     for i in (2, 0, 1):
         store.put_step(
-            StepRecord(run_id="r1", step_id=f"s#{i}", name="s", ordinal=i,
-                       idempotency_key=f"k{i}", args_hash="sha256:" + "0" * 64,
-                       started_at_utc="2026-08-08T06:00:00Z",
-                       status=StepStatus.COMPLETED)
+            StepRecord(
+                run_id="r1",
+                step_id=f"s#{i}",
+                name="s",
+                ordinal=i,
+                idempotency_key=f"k{i}",
+                args_hash="sha256:" + "0" * 64,
+                started_at_utc="2026-08-08T06:00:00Z",
+                status=StepStatus.COMPLETED,
+            )
         )
     assert [s.ordinal for s in store.list_steps("r1")] == [0, 1, 2]
 
 
 def test_get_step_by_id(store: StorageAdapter) -> None:
     store.put_run(_run())
-    store.put_step(StepRecord(run_id="r1", step_id="s#0", name="s", ordinal=0,
-                              idempotency_key="k", args_hash="sha256:" + "0" * 64,
-                              started_at_utc="2026-08-08T06:00:00Z"))
+    store.put_step(
+        StepRecord(
+            run_id="r1",
+            step_id="s#0",
+            name="s",
+            ordinal=0,
+            idempotency_key="k",
+            args_hash="sha256:" + "0" * 64,
+            started_at_utc="2026-08-08T06:00:00Z",
+        )
+    )
     assert store.get_step("r1", "s#0") is not None
     assert store.get_step("r1", "missing") is None
 
@@ -2757,8 +2823,14 @@ def test_snapshots_round_trip_and_preserve_order(store: StorageAdapter) -> None:
     store.put_run(_run())
     for i in range(3):
         store.put_snapshot(
-            seal({"n": i}, run_id="r1", workflow="demo", tenant_id="t1",
-                 step_index=i, kind=SnapshotKind.BASE if i == 0 else SnapshotKind.DELTA)
+            seal(
+                {"n": i},
+                run_id="r1",
+                workflow="demo",
+                tenant_id="t1",
+                step_index=i,
+                kind=SnapshotKind.BASE if i == 0 else SnapshotKind.DELTA,
+            )
         )
     envs = store.list_snapshots("r1")
     assert [e.step_index for e in envs] == [0, 1, 2]
@@ -2771,8 +2843,9 @@ def test_snapshots_since_last_base(store: StorageAdapter) -> None:
     store.put_run(_run())
     kinds = [SnapshotKind.BASE, SnapshotKind.DELTA, SnapshotKind.BASE, SnapshotKind.DELTA]
     for i, kind in enumerate(kinds):
-        store.put_snapshot(seal({"n": i}, run_id="r1", workflow="demo", tenant_id="t1",
-                                step_index=i, kind=kind))
+        store.put_snapshot(
+            seal({"n": i}, run_id="r1", workflow="demo", tenant_id="t1", step_index=i, kind=kind)
+        )
     envs = store.snapshots_for_resume("r1")
     assert [e.step_index for e in envs] == [2, 3]
 
@@ -2824,9 +2897,13 @@ pytestmark = pytest.mark.integration
 
 
 def _run() -> RunRecord:
-    return RunRecord(run_id="r1", workflow="w", tenant_id="t",
-                     created_at_utc="2026-08-08T06:00:00Z",
-                     updated_at_utc="2026-08-08T06:00:00Z")
+    return RunRecord(
+        run_id="r1",
+        workflow="w",
+        tenant_id="t",
+        created_at_utc="2026-08-08T06:00:00Z",
+        updated_at_utc="2026-08-08T06:00:00Z",
+    )
 
 
 def test_data_survives_reopening_the_database(tmp_path: Path) -> None:
@@ -2843,7 +2920,7 @@ def test_data_survives_reopening_the_database(tmp_path: Path) -> None:
 def test_schema_is_created_once_and_is_idempotent(tmp_path: Path) -> None:
     path = tmp_path / "chowki.db"
     SQLiteStorage(path).close()
-    SQLiteStorage(path).close()          # must not raise "table already exists"
+    SQLiteStorage(path).close()  # must not raise "table already exists"
 
 
 def test_parent_directory_is_created(tmp_path: Path) -> None:
@@ -2963,8 +3040,9 @@ from chowki.storage.memory import MemoryStorage
 from chowki.storage.sqlite import SQLiteStorage
 
 
-def test_default_engine_uses_sqlite_at_the_default_path(tmp_path: Path,
-                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_engine_uses_sqlite_at_the_default_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     reset_engine()
     engine = get_engine()
@@ -3098,7 +3176,7 @@ class ChowkiConfig:
     redaction_hmac_key: bytes | None = None
     resume_secret: bytes | None = None
     guardrails: GuardrailConfig = field(default_factory=GuardrailConfig)  # Task 16
-    gateway: ChannelGateway | None = None                                # Task 21
+    gateway: ChannelGateway | None = None  # Task 21
     blob_threshold_bytes: int = 4096
     db_path: Path = field(default_factory=lambda: DEFAULT_DB_PATH)
 ```
@@ -3254,8 +3332,8 @@ def test_completed_steps_are_skipped_on_re_execution(ctx: RunContext) -> None:
 
     replay = RunContext(run_id="r1", workflow="demo", engine=ctx.engine, resuming=True)
     with run_scope(replay):
-        assert expensive(21) == 42       # served from the step record
-    assert calls == [21]                  # the function body did not run again
+        assert expensive(21) == 42  # served from the step record
+    assert calls == [21]  # the function body did not run again
 
 
 def test_step_ordinals_disambiguate_repeated_calls(ctx: RunContext) -> None:
@@ -3312,8 +3390,10 @@ def test_idempotency_key_is_claimed_once_per_step(ctx: RunContext) -> None:
 
     key = ctx.engine.storage.get_step("r1", "send#0")
     assert key is not None
-    assert ctx.engine.storage.claim_idempotency_key(key.idempotency_key,
-                                                    args_hash=key.args_hash) is False
+    assert (
+        ctx.engine.storage.claim_idempotency_key(key.idempotency_key, args_hash=key.args_hash)
+        is False
+    )
 
 
 def test_state_is_snapshotted_per_step(ctx: RunContext) -> None:
@@ -3642,9 +3722,14 @@ def _seed(engine: ChowkiEngine, run_id: str, status: RunStatus) -> None:
     from chowki.types import RunRecord
 
     engine.storage.put_run(
-        RunRecord(run_id=run_id, workflow="w", tenant_id="default",
-                  created_at_utc="2026-08-08T06:00:00Z",
-                  updated_at_utc="2026-08-08T06:00:00Z", status=status)
+        RunRecord(
+            run_id=run_id,
+            workflow="w",
+            tenant_id="default",
+            created_at_utc="2026-08-08T06:00:00Z",
+            updated_at_utc="2026-08-08T06:00:00Z",
+            status=status,
+        )
     )
 
 
@@ -4013,11 +4098,11 @@ def test_soft_threshold_emits_a_warning_once() -> None:
     t = BudgetTracker(GuardrailConfig(max_token_budget=1000), on_warning=events.append)
     t.add(Usage(input_tokens=790))
     assert events == []
-    t.add(Usage(input_tokens=20))          # crosses 80%
+    t.add(Usage(input_tokens=20))  # crosses 80%
     assert len(events) == 1
     assert events[0].dimension == "tokens"
     assert 0.80 <= events[0].fraction < 1.0
-    t.add(Usage(input_tokens=10))          # still under 100%
+    t.add(Usage(input_tokens=10))  # still under 100%
     assert len(events) == 1, "the soft warning must not repeat every step"
 
 
@@ -4035,7 +4120,7 @@ def test_hard_cost_limit_raises() -> None:
 
 def test_cached_input_tokens_do_not_count_towards_the_token_ceiling() -> None:
     t = BudgetTracker(GuardrailConfig(max_token_budget=100))
-    t.add(Usage(cached_input_tokens=10_000))     # discounted, must not trip the ceiling
+    t.add(Usage(cached_input_tokens=10_000))  # discounted, must not trip the ceiling
 
 
 def test_check_before_call_predicts_the_breach() -> None:
@@ -4105,6 +4190,7 @@ class BudgetTracker:
     ) -> None: ...
 
     total: Usage
+
     def add(self, usage: Usage) -> None: ...
     def would_exceed(self, usage: Usage) -> bool: ...
     @property
@@ -4182,13 +4268,13 @@ def breaker() -> AnomalyBreaker:
         (RateLimitError("429"), 0, BreakerAction.RETRY),
         (RateLimitError("429"), 1, BreakerAction.RETRY),
         (RateLimitError("429"), 2, BreakerAction.RETRY),
-        (RateLimitError("429"), 3, BreakerAction.PAUSE),      # max_auto_retries=3
+        (RateLimitError("429"), 3, BreakerAction.PAUSE),  # max_auto_retries=3
         (ToolExecutionError("boom"), 0, BreakerAction.RETRY),
         (ToolExecutionError("boom"), 2, BreakerAction.RETRY),
         (ToolExecutionError("boom"), 3, BreakerAction.PAUSE),
         (ValidationFailure("bad"), 0, BreakerAction.REASK),
         (ValidationFailure("bad"), 1, BreakerAction.REASK),
-        (ValidationFailure("bad"), 2, BreakerAction.PAUSE),   # max_validation_reasks=2
+        (ValidationFailure("bad"), 2, BreakerAction.PAUSE),  # max_validation_reasks=2
         (ContextWindowExceeded("long"), 0, BreakerAction.SUMMARIZE),
         (ContextWindowExceeded("long"), 1, BreakerAction.ABORT),
         (InfiniteLoopDetected("cycle"), 0, BreakerAction.PAUSE),
@@ -4196,8 +4282,9 @@ def breaker() -> AnomalyBreaker:
         (BudgetExceeded("over"), 0, BreakerAction.PAUSE),
     ],
 )
-def test_action_matrix(breaker: AnomalyBreaker, exc: Exception, attempt: int,
-                       expected: BreakerAction) -> None:
+def test_action_matrix(
+    breaker: AnomalyBreaker, exc: Exception, attempt: int, expected: BreakerAction
+) -> None:
     assert breaker.decide(exc, attempt=attempt) is expected
 
 
@@ -4321,7 +4408,7 @@ while True:
     try:
         result = func(*args, **kwargs)
         break
-    except Exception as exc:                      # noqa: BLE001 - classified below
+    except Exception as exc:  # noqa: BLE001 - classified below
         action = breaker.decide(exc, attempt=attempt)
         record.attempts = attempt + 1
         if action is BreakerAction.RETRY:
@@ -4394,8 +4481,7 @@ def issuer() -> TokenIssuer:
 
 
 def test_issue_and_verify(issuer: TokenIssuer) -> None:
-    token = issuer.issue(run_id="r1", step_id="approve#0",
-                         permitted_actions=("APPROVE", "REJECT"))
+    token = issuer.issue(run_id="r1", step_id="approve#0", permitted_actions=("APPROVE", "REJECT"))
     claims = issuer.verify(token, action="APPROVE")
     assert claims.run_id == "r1"
     assert claims.step_id == "approve#0"
@@ -4487,8 +4573,11 @@ from chowki.types import RunStatus
 def test_pause_suspends_the_run_and_persists_the_request(engine: ChowkiEngine) -> None:
     @workflow(engine=engine)
     def pipeline() -> None:
-        pause(reason="approve the transfer", payload={"amount": 5000},
-              permitted_actions=("APPROVE", "REJECT", "EDIT"))
+        pause(
+            reason="approve the transfer",
+            payload={"amount": 5000},
+            permitted_actions=("APPROVE", "REJECT", "EDIT"),
+        )
         raise AssertionError("must not be reached")
 
     with pytest.raises(WorkflowPaused) as excinfo:
@@ -4558,13 +4647,19 @@ class ResumeClaims(msgspec.Struct, kw_only=True, frozen=True):
 
 
 class TokenIssuer:
-    def __init__(self, *, secret: bytes, storage: StorageAdapter,
-                 default_ttl: int = 86_400) -> None: ...
+    def __init__(
+        self, *, secret: bytes, storage: StorageAdapter, default_ttl: int = 86_400
+    ) -> None: ...
 
-    def issue(self, *, run_id: str, step_id: str,
-              permitted_actions: Sequence[str],
-              allowed_roles: Sequence[str] = (),
-              ttl: int | None = None) -> str: ...
+    def issue(
+        self,
+        *,
+        run_id: str,
+        step_id: str,
+        permitted_actions: Sequence[str],
+        allowed_roles: Sequence[str] = (),
+        ttl: int | None = None,
+    ) -> str: ...
 
     def verify(self, token: str, *, action: str) -> ResumeClaims: ...
 
@@ -4660,8 +4755,11 @@ def build(engine: ChowkiEngine, calls: list[str]):
     def transfer() -> str:
         proposal = prepare()
         current_run().state["proposal"] = proposal
-        pause(reason="approve transfer", payload=proposal,
-              permitted_actions=("APPROVE", "REJECT", "EDIT"))
+        pause(
+            reason="approve transfer",
+            payload=proposal,
+            permitted_actions=("APPROVE", "REJECT", "EDIT"),
+        )
         calls.append("send")
         return f"sent to {current_run().state['proposal']['recipient']}"
 
@@ -4677,8 +4775,9 @@ def test_approve_resumes_and_completes(engine: ChowkiEngine) -> None:
     token = excinfo.value.token
     assert token is not None
 
-    result = resume(run_id="r1", token=token, decision=Decision.APPROVE,
-                    workflow_fn=transfer, engine=engine)
+    result = resume(
+        run_id="r1", token=token, decision=Decision.APPROVE, workflow_fn=transfer, engine=engine
+    )
     assert isinstance(result, ResumeResult)
     assert result.value == "sent to wrong@example.com"
     assert calls == ["prepare", "send"], "the completed step must not run twice"
@@ -4695,10 +4794,12 @@ def test_edit_applies_an_rfc6902_patch_before_resuming(engine: ChowkiEngine) -> 
         transfer(run_id="r2")
 
     result = resume(
-        run_id="r2", token=excinfo.value.token, decision=Decision.EDIT,
-        patch=[{"op": "replace", "path": "/proposal/recipient",
-                "value": "verified@company.com"}],
-        workflow_fn=transfer, engine=engine,
+        run_id="r2",
+        token=excinfo.value.token,
+        decision=Decision.EDIT,
+        patch=[{"op": "replace", "path": "/proposal/recipient", "value": "verified@company.com"}],
+        workflow_fn=transfer,
+        engine=engine,
     )
     assert result.value == "sent to verified@company.com"
     assert calls == ["prepare", "send"]
@@ -4713,10 +4814,15 @@ def test_patch_test_op_guards_against_a_stale_edit(engine: ChowkiEngine) -> None
 
     with pytest.raises(ChowkiStateError):
         resume(
-            run_id="r3", token=excinfo.value.token, decision=Decision.EDIT,
-            patch=[{"op": "test", "path": "/proposal/amount", "value": 999},
-                   {"op": "replace", "path": "/proposal/amount", "value": 1}],
-            workflow_fn=transfer, engine=engine,
+            run_id="r3",
+            token=excinfo.value.token,
+            decision=Decision.EDIT,
+            patch=[
+                {"op": "test", "path": "/proposal/amount", "value": 999},
+                {"op": "replace", "path": "/proposal/amount", "value": 1},
+            ],
+            workflow_fn=transfer,
+            engine=engine,
         )
 
 
@@ -4727,8 +4833,13 @@ def test_reject_raises_and_marks_the_run_rejected(engine: ChowkiEngine) -> None:
         transfer(run_id="r4")
 
     with pytest.raises(HumanRejectedError):
-        resume(run_id="r4", token=excinfo.value.token, decision=Decision.REJECT,
-               workflow_fn=transfer, engine=engine)
+        resume(
+            run_id="r4",
+            token=excinfo.value.token,
+            decision=Decision.REJECT,
+            workflow_fn=transfer,
+            engine=engine,
+        )
 
     assert calls == ["prepare"], "the post-pause body must never run after a rejection"
     run = engine.storage.get_run("r4")
@@ -4743,11 +4854,11 @@ def test_a_token_cannot_be_replayed(engine: ChowkiEngine) -> None:
         transfer(run_id="r5")
     token = excinfo.value.token
 
-    resume(run_id="r5", token=token, decision=Decision.APPROVE,
-           workflow_fn=transfer, engine=engine)
+    resume(run_id="r5", token=token, decision=Decision.APPROVE, workflow_fn=transfer, engine=engine)
     with pytest.raises(ReplayedNonceError):
-        resume(run_id="r5", token=token, decision=Decision.APPROVE,
-               workflow_fn=transfer, engine=engine)
+        resume(
+            run_id="r5", token=token, decision=Decision.APPROVE, workflow_fn=transfer, engine=engine
+        )
 
 
 def test_a_token_for_another_run_is_rejected(engine: ChowkiEngine) -> None:
@@ -4757,16 +4868,26 @@ def test_a_token_for_another_run_is_rejected(engine: ChowkiEngine) -> None:
     with pytest.raises(WorkflowPaused) as excinfo:
         transfer(run_id="r6")
     with pytest.raises(InvalidResumeToken, match="run"):
-        resume(run_id="OTHER", token=excinfo.value.token, decision=Decision.APPROVE,
-               workflow_fn=transfer, engine=engine)
+        resume(
+            run_id="OTHER",
+            token=excinfo.value.token,
+            decision=Decision.APPROVE,
+            workflow_fn=transfer,
+            engine=engine,
+        )
 
 
 def test_resuming_a_run_that_is_not_paused_is_an_error(engine: ChowkiEngine) -> None:
     from chowki.errors import ChowkiStateError
 
     with pytest.raises(ChowkiStateError, match="not paused"):
-        resume(run_id="ghost", token="x.y", decision=Decision.APPROVE,
-               workflow_fn=lambda: None, engine=engine)
+        resume(
+            run_id="ghost",
+            token="x.y",
+            decision=Decision.APPROVE,
+            workflow_fn=lambda: None,
+            engine=engine,
+        )
 
 
 def test_an_audit_record_is_written_with_the_hash_chain(engine: ChowkiEngine) -> None:
@@ -4774,9 +4895,15 @@ def test_an_audit_record_is_written_with_the_hash_chain(engine: ChowkiEngine) ->
     with pytest.raises(WorkflowPaused) as excinfo:
         transfer(run_id="r7")
 
-    resume(run_id="r7", token=excinfo.value.token, decision=Decision.EDIT,
-           patch=[{"op": "replace", "path": "/proposal/amount", "value": 1}],
-           workflow_fn=transfer, engine=engine, actor={"user_id": "U1"})
+    resume(
+        run_id="r7",
+        token=excinfo.value.token,
+        decision=Decision.EDIT,
+        patch=[{"op": "replace", "path": "/proposal/amount", "value": 1}],
+        workflow_fn=transfer,
+        engine=engine,
+        actor={"user_id": "U1"},
+    )
 
     records = engine.storage.list_audit(run_id="r7")
     assert len(records) == 1
@@ -4801,8 +4928,7 @@ from chowki.state.redact import Redactor
 
 @pytest.mark.benchmark
 def test_cold_load_of_a_base_plus_10_deltas(benchmark, assert_budget) -> None:
-    pipe = SnapshotPipeline(redactor=Redactor(hmac_key=b"b"), blobs=BlobStore(),
-                            tenant_id="t")
+    pipe = SnapshotPipeline(redactor=Redactor(hmac_key=b"b"), blobs=BlobStore(), tenant_id="t")
     state = {"messages": [{"role": "user", "content": "m" * 400} for _ in range(2400)]}
     envs = []
     for i in range(11):
@@ -4950,10 +5076,15 @@ def test_in_memory_gateway_satisfies_the_protocol() -> None:
 
 def test_notice_carries_everything_a_channel_needs_to_render() -> None:
     notice = PauseNotice(
-        run_id="r1", workflow="transfer", step_id="approve#0",
-        reason="approve the transfer", payload={"amount": 5000},
-        permitted_actions=("APPROVE", "REJECT"), reviewers=("U1",),
-        token="tok", created_at_utc="2026-08-08T06:00:00Z",
+        run_id="r1",
+        workflow="transfer",
+        step_id="approve#0",
+        reason="approve the transfer",
+        payload={"amount": 5000},
+        permitted_actions=("APPROVE", "REJECT"),
+        reviewers=("U1",),
+        token="tok",
+        created_at_utc="2026-08-08T06:00:00Z",
     )
     assert notice.permitted_actions == ("APPROVE", "REJECT")
     assert len(notice.token) < 2000  # Slack button `value` limit
@@ -4996,8 +5127,13 @@ def test_gateway_receives_a_confirmation_after_resume() -> None:
 
     with pytest.raises(WorkflowPaused) as excinfo:
         pipeline(run_id="r2")
-    resume(run_id="r2", token=excinfo.value.token, decision=Decision.APPROVE,
-           workflow_fn=pipeline, engine=engine)
+    resume(
+        run_id="r2",
+        token=excinfo.value.token,
+        decision=Decision.APPROVE,
+        workflow_fn=pipeline,
+        engine=engine,
+    )
 
     assert gateway.confirmations
     handle, decision, _ = gateway.confirmations[0]
@@ -5037,10 +5173,19 @@ def test_verify_ingress_default_denies() -> None:
 
 def test_console_gateway_writes_the_token_and_actions(capsys: pytest.CaptureFixture[str]) -> None:
     gw = ConsoleGateway()
-    gw.notify(PauseNotice(run_id="r", workflow="w", step_id="s#0", reason="why",
-                          payload={}, permitted_actions=("APPROVE", "REJECT"),
-                          reviewers=(), token="TOKEN123",
-                          created_at_utc="2026-08-08T06:00:00Z"))
+    gw.notify(
+        PauseNotice(
+            run_id="r",
+            workflow="w",
+            step_id="s#0",
+            reason="why",
+            payload={},
+            permitted_actions=("APPROVE", "REJECT"),
+            reviewers=(),
+            token="TOKEN123",
+            created_at_utc="2026-08-08T06:00:00Z",
+        )
+    )
     out = capsys.readouterr().out
     assert "chowki" in out.lower()
     assert "TOKEN123" in out
@@ -5057,7 +5202,9 @@ from chowki.storage.memory import MemoryStorage
 
 def test_record_shape_matches_the_governance_spec() -> None:
     rec = build_audit_record(
-        run_id="r1", step_id="s#0", action="EDIT",
+        run_id="r1",
+        step_id="s#0",
+        action="EDIT",
         actor={"platform": "slack", "user_id": "U1"},
         original_state_hash="sha256:" + "a" * 64,
         patched_state_hash="sha256:" + "b" * 64,
@@ -5065,8 +5212,15 @@ def test_record_shape_matches_the_governance_spec() -> None:
         nonce="n1",
     )
     assert set(rec) == {
-        "audit_id", "timestamp", "run_id", "step_id", "actor", "action",
-        "original_state_hash", "patched_state_hash", "json_patch",
+        "audit_id",
+        "timestamp",
+        "run_id",
+        "step_id",
+        "actor",
+        "action",
+        "original_state_hash",
+        "patched_state_hash",
+        "json_patch",
         "verification_details",
     }
     assert rec["verification_details"]["signature_verified"] is True
@@ -5075,9 +5229,16 @@ def test_record_shape_matches_the_governance_spec() -> None:
 
 def test_audit_ids_are_unique() -> None:
     ids = {
-        build_audit_record(run_id="r", step_id="s", action="APPROVE", actor={},
-                           original_state_hash="h", patched_state_hash="h",
-                           json_patch=[], nonce=str(i))["audit_id"]
+        build_audit_record(
+            run_id="r",
+            step_id="s",
+            action="APPROVE",
+            actor={},
+            original_state_hash="h",
+            patched_state_hash="h",
+            json_patch=[],
+            nonce=str(i),
+        )["audit_id"]
         for i in range(500)
     }
     assert len(ids) == 500
@@ -5086,9 +5247,18 @@ def test_audit_ids_are_unique() -> None:
 def test_log_is_append_only_and_ordered() -> None:
     log = AuditLog(MemoryStorage())
     for action in ("APPROVE", "REJECT", "EDIT"):
-        log.append(build_audit_record(run_id="r", step_id="s", action=action, actor={},
-                                      original_state_hash="h", patched_state_hash="h",
-                                      json_patch=[], nonce=action))
+        log.append(
+            build_audit_record(
+                run_id="r",
+                step_id="s",
+                action=action,
+                actor={},
+                original_state_hash="h",
+                patched_state_hash="h",
+                json_patch=[],
+                nonce=action,
+            )
+        )
     assert [r["action"] for r in log.entries(run_id="r")] == ["APPROVE", "REJECT", "EDIT"]
     assert not hasattr(log, "delete")
     assert not hasattr(log, "update")
@@ -5100,11 +5270,18 @@ def test_secrets_never_reach_the_audit_log() -> None:
 
     secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
     log = AuditLog(MemoryStorage(), redactor=Redactor(hmac_key=b"k"))
-    log.append(build_audit_record(
-        run_id="r", step_id="s", action="EDIT", actor={},
-        original_state_hash="h", patched_state_hash="h",
-        json_patch=[{"op": "replace", "path": "/key", "value": secret}], nonce="n",
-    ))
+    log.append(
+        build_audit_record(
+            run_id="r",
+            step_id="s",
+            action="EDIT",
+            actor={},
+            original_state_hash="h",
+            patched_state_hash="h",
+            json_patch=[{"op": "replace", "path": "/key", "value": secret}],
+            nonce="n",
+        )
+    )
     assert secret not in str(log.entries(run_id="r"))
 ```
 
@@ -5133,6 +5310,7 @@ class GatewayHandle(msgspec.Struct, kw_only=True, frozen=True):
     (activity id); REST fills url. Persisted with the run so a confirmation can be
     delivered after a process restart.
     """
+
     channel: str
     message_id: str = ""
     conversation_id: str = ""
@@ -5151,9 +5329,7 @@ class ChannelGateway(Protocol):
 
     def verify_ingress(self, *, body: bytes, headers: Mapping[str, str]) -> bool: ...
 
-    def parse_action(
-        self, *, body: bytes, headers: Mapping[str, str]
-    ) -> ChannelAction | None: ...
+    def parse_action(self, *, body: bytes, headers: Mapping[str, str]) -> ChannelAction | None: ...
 
 
 class ChannelAction(msgspec.Struct, kw_only=True, frozen=True):
@@ -5197,7 +5373,7 @@ gateway = ctx.engine.gateway
 if gateway is not None:
     try:
         handle = gateway.notify(notice)
-        ctx.engine.storage.put_gateway_handle(run_id, handle)   # add to the protocol
+        ctx.engine.storage.put_gateway_handle(run_id, handle)  # add to the protocol
     except Exception:
         logger.exception("chowki_gateway_notify_failed", run_id=run_id, channel=...)
 ```
@@ -5288,9 +5464,7 @@ def test_no_banned_product_term_in_the_package() -> None:
 
     banned = "check" + "point"
     root = Path(chowki.__file__).parent
-    offenders = [
-        p for p in root.rglob("*.py") if banned in p.read_text(encoding="utf-8").lower()
-    ]
+    offenders = [p for p in root.rglob("*.py") if banned in p.read_text(encoding="utf-8").lower()]
     assert offenders == []
 
 
@@ -5442,10 +5616,12 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
     def payout(goal: str) -> str:
         proposal = plan(goal)
         current_run().state["proposal"] = proposal
-        chowki.report_usage(chowki.Usage(input_tokens=1200, output_tokens=300,
-                                         cost_usd=0.02))
-        chowki.pause(reason="approve the payout", payload=proposal,
-                     permitted_actions=("APPROVE", "REJECT", "EDIT"))
+        chowki.report_usage(chowki.Usage(input_tokens=1200, output_tokens=300, cost_usd=0.02))
+        chowki.pause(
+            reason="approve the payout",
+            payload=proposal,
+            permitted_actions=("APPROVE", "REJECT", "EDIT"),
+        )
         return transfer(current_run().state["proposal"])
 
     # 1. Run until the human boundary.
@@ -5478,11 +5654,16 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
 
     # 6. A human fixes the typo and approves.
     result = chowki.resume(
-        run_id="e2e", token=token, decision=Decision.EDIT,
-        patch=[{"op": "test", "path": "/proposal/amount", "value": 5000},
-               {"op": "replace", "path": "/proposal/recipient",
-                "value": "vendor@example.com"}],
-        workflow_fn=payout, engine=engine, actor={"platform": "web", "user_id": "U1"},
+        run_id="e2e",
+        token=token,
+        decision=Decision.EDIT,
+        patch=[
+            {"op": "test", "path": "/proposal/amount", "value": 5000},
+            {"op": "replace", "path": "/proposal/recipient", "value": "vendor@example.com"},
+        ],
+        workflow_fn=payout,
+        engine=engine,
+        actor={"platform": "web", "user_id": "U1"},
     )
 
     # 7. Zero-waste: the LLM step never re-ran; the side effect ran exactly once.
@@ -5500,12 +5681,14 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
 
     # 9. The token cannot be replayed.
     with pytest.raises(chowki.ChowkiError):
-        chowki.resume(run_id="e2e", token=token, decision=Decision.APPROVE,
-                      workflow_fn=payout, engine=engine)
+        chowki.resume(
+            run_id="e2e", token=token, decision=Decision.APPROVE, workflow_fn=payout, engine=engine
+        )
 
 
-def test_crash_recovery_across_engine_instances(tmp_path: Path,
-                                                monkeypatch: pytest.MonkeyPatch) -> None:
+def test_crash_recovery_across_engine_instances(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A new process finds the incomplete run and resumes without repeating work."""
     monkeypatch.setenv("CHOWKI_MASTER_KEY", base64.b64encode(b"k" * 32).decode())
     db = tmp_path / "chowki.db"
@@ -5679,4 +5862,3 @@ and type checks pass, and the full test suite is green after **every** task; no 
 leaves the tree broken.
 
 PLAN COMPLETE
-

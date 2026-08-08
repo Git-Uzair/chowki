@@ -126,11 +126,14 @@ from typing import Callable, Dict, Any
 
 MIGRATION_REGISTRY: Dict[int, Callable[[Dict[str, Any]], Dict[str, Any]]] = {}
 
+
 def register_migration(from_version: int):
     def decorator(fn: Callable[[Dict[str, Any]], Dict[str, Any]]):
         MIGRATION_REGISTRY[from_version] = fn
         return fn
+
     return decorator
+
 
 @register_migration(from_version=1)
 def migrate_v1_to_v2(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -381,5 +384,3 @@ $$\text{Total Per-Step Overhead Target} \le \mathbf{2.0 \text{ ms}}$$
 * [Source: https://msgspec.dev/benchmarks (Accessed: 2026-08-08)]
 * [Source: https://cryptography.io/en/latest/hazmat/primitives/aead/ (Accessed: 2026-08-08)]
 * [Source: https://www.danilchenko.dev/posts/msgspec-vs-pydantic/ (Accessed: 2026-08-08)]
-
-

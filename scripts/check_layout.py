@@ -30,6 +30,48 @@ REQUIRED_FILES = [
     "spec/README.md",
 ]
 
+EXCLUDED_DIR_NAMES = {
+    ".git",
+    ".venv",
+    "node_modules",
+    ".chowki",
+    ".benchmarks",
+    ".hypothesis",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    "dist",
+    "build",
+}
+
+CHECKED_SUFFIXES = {
+    ".py",
+    ".md",
+    ".toml",
+    ".yml",
+    ".yaml",
+    ".json",
+    ".cfg",
+    ".txt",
+    ".ts",
+    ".js",
+    ".sh",
+    ".ps1",
+    ".bat",
+    ".cmd",
+    ".html",
+    ".css",
+    ".scss",
+    ".rs",
+    ".go",
+    ".c",
+    ".h",
+    ".cpp",
+    ".rst",
+    ".ini",
+    ".lock",
+}
+
 BANNED_WORD = "check" + "point"  # split so this guard never trips on itself
 
 
@@ -42,18 +84,29 @@ def main() -> int:
         if not (ROOT / rel).is_file():
             failures.append(f"missing file: {rel}")
 
+    script_path = Path(__file__).resolve()
+
     for path in ROOT.rglob("*"):
-        if not path.is_file() or ".git" in path.parts or ".venv" in path.parts:
+        if not path.is_file():
             continue
-        if path.suffix not in {".py", ".md", ".toml", ".yml", ".yaml", ".json", ".cfg"}:
+
+        rel_path = path.relative_to(ROOT)
+        if any(part in EXCLUDED_DIR_NAMES or part.endswith(".egg-info") for part in rel_path.parts):
             continue
-        if path == Path(__file__):
+
+        if path.resolve() == script_path:
             continue
+
+        if not (path.suffix in CHECKED_SUFFIXES or path.suffix == "" or path.name.startswith(".")):
+            continue
+
         text = path.read_text(encoding="utf-8", errors="ignore")
         if BANNED_WORD in text.lower():
-            failures.append(f"banned product term in {path.relative_to(ROOT)}")
-        if text and not text.endswith("\n"):
-            failures.append(f"missing trailing newline: {path.relative_to(ROOT)}")
+            failures.append(f"banned product term in {rel_path}")
+        if not text.endswith("\n"):
+            failures.append(f"missing trailing newline: {rel_path}")
+        elif text.endswith("\n\n"):
+            failures.append(f"multiple trailing newlines: {rel_path}")
 
     for line in failures:
         print(f"FAIL: {line}", file=sys.stderr)
