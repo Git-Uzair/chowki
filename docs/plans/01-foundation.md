@@ -1394,6 +1394,13 @@ class RunRecord(msgspec.Struct, kw_only=True):
 
 ## Task 6 — Canonical JSON, SHA-256 content addressing, and the blob store
 
+**Status:** COMPLETED (VERDICT: PASS)
+
+**Executor Notes:**
+- Under RFC 8785 UTF-16 code-unit ordering, U+1F600 (surrogate pair `0xD83D 0xDE00`) sorts before `0xFFFF` (`\uffff`).
+- `extract_blobs` escapes strings starting with `BLOB_REF_PREFIX` (`ref:sha256:`) or `ESCAPE_PREFIX` (`ref-lit:`).
+- `extract_blobs` uses `surrogatepass` error handling on UTF-8 encoding for byte length checks so lone surrogates don't raise `UnicodeEncodeError`.
+
 **Goal:** Deterministic hashing for content addressing and loop signatures, plus the
 >4 KB blob extraction rule from ADR-002.
 
@@ -1467,10 +1474,10 @@ def test_non_finite_floats_are_rejected() -> None:
 
 def test_non_bmp_keys_sort_by_utf16_code_units() -> None:
     """RFC 8785 sorts by UTF-16 code units; Python's sorted() uses code points.
-    These disagree for astral-plane keys, so the slow path must engage."""
+    U+1F600 encodes as UTF-16 surrogate pair 0xD83D 0xDE00, which sorts before 0xFFFF."""
     value = {"\U0001f600": 1, "\uffff": 2}
     out = canonicalize(value).decode()
-    assert out.index('"\uffff"') < out.index('"\U0001f600"')
+    assert out.index('"\U0001f600"') < out.index('"\uffff"')
 
 
 @given(
