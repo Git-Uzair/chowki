@@ -32,8 +32,9 @@ BUDGETS: Final[dict[str, float]] = {
     "budget_track_step_us": 20.0,
 }
 
-#: Multiplier applied to every budget before asserting, to absorb local dev box
-#: CI runner noise.
+#: Multiplier applied to every budget before asserting, to absorb CI runner noise.
+#: Local runs and CI use the same factor so a "green locally, red in CI" split is
+#: impossible. Tighten only with a plan update.
 TOLERANCE: Final = 1.5
 
 
