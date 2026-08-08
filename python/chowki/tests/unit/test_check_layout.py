@@ -187,3 +187,37 @@ def test_check_layout_ignores_excluded_directories(
         (ex_dir / "bad.py").write_text(f"bad = '{banned}'\n\n", encoding="utf-8")
 
     assert check_layout.main() == 0
+
+
+def test_check_layout_detects_bare_cr_trailing_newline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Files ending in bare \\r without \\n must fail as missing trailing newline."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_bytes(b"content\n")
+
+    bad_file = tmp_path / "test.txt"
+    bad_file.write_bytes(b"content\r")
+
+    assert check_layout.main() == 1
+
+
+def test_check_layout_scans_script_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """scripts/check_layout.py itself is not exempted from checks."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_bytes(b"content\n")
+
+    banned = "check" + "point"
+    script_file = tmp_path / "scripts" / "check_layout.py"
+    script_file.parent.mkdir(parents=True, exist_ok=True)
+    script_file.write_bytes(f"banned = '{banned}'\n".encode())
+
+    assert check_layout.main() == 1

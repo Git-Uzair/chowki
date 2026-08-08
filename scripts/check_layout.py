@@ -101,17 +101,12 @@ def main() -> int:
         if not (ROOT / rel).is_file():
             failures.append(f"missing file: {rel}")
 
-    script_path = Path(__file__).resolve()
-
     for path in ROOT.rglob("*"):
         rel_path = path.relative_to(ROOT)
 
         # Check directory exclusions: parent dirs for files, all parts for dirs
         check_parts = rel_path.parts[:-1] if path.is_file() else rel_path.parts
         if any(part in EXCLUDED_DIR_NAMES or part.endswith(".egg-info") for part in check_parts):
-            continue
-
-        if path.resolve() == script_path:
             continue
 
         if (
@@ -130,13 +125,17 @@ def main() -> int:
         if is_binary(path):
             continue
 
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        raw = path.read_bytes()
+        text = raw.decode("utf-8", errors="ignore")
         if BANNED_WORD in text.lower():
             failures.append(f"banned product term in {rel_path}")
-        if not text.endswith("\n"):
+
+        if not raw.endswith(b"\n"):
             failures.append(f"missing trailing newline: {rel_path}")
-        elif text.endswith("\n\n"):
-            failures.append(f"multiple trailing newlines: {rel_path}")
+        else:
+            stripped = raw[:-2] if raw.endswith(b"\r\n") else raw[:-1]
+            if stripped.endswith(b"\n") or stripped.endswith(b"\r"):
+                failures.append(f"multiple trailing newlines: {rel_path}")
 
     for line in failures:
         print(f"FAIL: {line}", file=sys.stderr)
