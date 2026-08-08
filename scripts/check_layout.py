@@ -33,6 +33,7 @@ REQUIRED_FILES = [
 
 EXCLUDED_DIR_NAMES = {
     ".git",
+    ".kilo",
     ".worktrees",
     ".venv",
     "node_modules",
