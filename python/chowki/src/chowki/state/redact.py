@@ -55,6 +55,21 @@ _SAFE_KEYS: Final = frozenset(
 _SAFE_VALUES: Final = frozenset(
     {"user", "assistant", "system", "tool", "function", "pending", "running", "completed", "failed"}
 )
+_INDICATOR_TUPLE: Final = (
+    "-----",
+    "eyJ",
+    "sk-",
+    "sk_",
+    "pk_",
+    "AKIA",
+    "ASIA",
+    "aws_secret",
+    "ghp_",
+    "xox",
+    "Bearer",
+    "Basic",
+    "://",
+)
 
 _UUID_RE: Final = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -81,7 +96,7 @@ def _is_safe(token: str) -> bool:
         return True
     if _HAS_DIGIT.search(token) is None:
         return True
-    if _UUID_RE.match(token) is not None:
+    if len(token) == 36 and _UUID_RE.match(token) is not None:
         return True
     if len(token) in (16, 32, 40, 64) and _HEX_RE.match(token) is not None:
         return True
@@ -171,17 +186,7 @@ class Redactor:
             working_text = text
 
         has_ind = self._has_extra_patterns or (
-            (
-                "_" in working_text
-                or "-" in working_text
-                or ":" in working_text
-                or "eyJ" in working_text
-                or "AKIA" in working_text
-                or "ASIA" in working_text
-                or "xox" in working_text
-                or "Bearer" in working_text
-                or "Basic" in working_text
-            )
+            any(ind in working_text for ind in _INDICATOR_TUPLE)
             and (_HAS_INDICATOR.search(working_text) is not None)
         )
         res = self._combined_re.sub(self._sub_layer1, working_text) if has_ind else working_text
@@ -213,23 +218,21 @@ class Redactor:
             new_dict: dict[Any, Any] = {}
             dict_items: Any = value  # pyright: ignore[reportUnknownVariableType]
             for k, v in dict_items.items():
-                if isinstance(k, str) and k in _SAFE_KEYS:
+                if type(k) is str and k in _SAFE_KEYS:
                     new_k: Any = k
+                elif type(k) is str:
+                    new_k = self.redact_text(k) if len(k) >= 8 else k
+                    if len(k) >= 3 and _SENSITIVE_KEY.search(k):
+                        new_dict[new_k] = self.placeholder("key_name", str(v))
+                        continue
                 else:
-                    if isinstance(k, str):
-                        new_k = self.redact_text(k) if len(k) >= 8 else k
-                        if len(k) >= 3 and _SENSITIVE_KEY.search(k):
-                            new_dict[new_k] = self.placeholder("key_name", str(v))
-                            continue
-                    else:
-                        new_k = self.redact(k)
+                    new_k = self.redact(k)
 
-                if isinstance(v, str):
-                    if len(v) < 8 or v in _SAFE_KEYS or v in _SAFE_VALUES:
-                        new_dict[new_k] = v
-                    else:
-                        new_dict[new_k] = self.redact_text(v)
-                elif isinstance(v, _CONTAINER_TYPES):
+                if type(v) is str:
+                    new_dict[new_k] = (
+                        v if (len(v) < 8 or v in _SAFE_VALUES) else self.redact_text(v)
+                    )
+                elif type(v) in _CONTAINER_TYPES:
                     new_dict[new_k] = self.redact(v)
                 else:
                     new_dict[new_k] = v

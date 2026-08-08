@@ -1619,13 +1619,13 @@ Run the unit tests and confirm `ModuleNotFoundError: No module named
 
 ## Task 7 — Two-tier secret redaction engine
 
-**Status:** COMPLETE
+**Status:** COMPLETED (VERDICT: PASS)
 
 **Executor Notes:**
-- Restored exact Layer 1 regex patterns verbatim per plan §2 (bearer, basic, openai_proj, anthropic, stripe, aws_access, github, slack, openai).
-- Ensured `_is_safe` checks `_HAS_DIGIT.search(token) is None` to skip `_shannon` on pure-letter tokens.
-- Updated `test_redact_1mib_within_budget` to instantiate a fresh `Redactor` inside `_run()` and verified median duration is ~0.80 ms (under 1.2 ms limit).
-- Added comprehensive unit tests for Bearer and Basic tokens. All test and benchmark suites pass.
+- All 13 Layer 1 regex patterns in `_PATTERNS` are byte-identical verbatim to plan §2.
+- `_is_safe` checks `_HAS_DIGIT.search(token) is None` to skip `_shannon` on pure-letter tokens and checks UUID length before regex matching.
+- Sensitive key names replace the entire value with a placeholder without inspecting content.
+- `test_redact_1mib_within_budget` matches plan §3 verbatim and asserts execution under the 1.2 ms budget limit. All unit tests, typechecks, lints, and layout checks pass cleanly.
 
 **Goal:** ADR-003 layer 1 (compiled regex) and layer 2 (Shannon entropy) applied to the
 whole state tree before anything is serialised, within a 0.8 ms / 1 MiB budget.
