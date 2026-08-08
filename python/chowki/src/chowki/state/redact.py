@@ -20,8 +20,24 @@ PLACEHOLDER_RE: Final = re.compile(r"\[REDACTED:[a-z0-9_]+:[0-9a-f]{8}\]")
 
 _PROSE_RE: Final = re.compile(r"^[A-Za-z. ,!?'\"\n\r\t]+$")
 _HAS_DIGIT: Final = re.compile(r"\d")
+_DIGITS_TUPLE: Final = ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+_INDICATOR_TUPLE: Final = (
+    "-----",
+    "eyJ",
+    "sk-",
+    "sk_",
+    "pk_",
+    "AKIA",
+    "ASIA",
+    "aws_secret",
+    "ghp_",
+    "xox",
+    "Bearer",
+    "Basic",
+    "://",
+)
 
-_PATTERNS: tuple[tuple[str, str], ...] = (
+_PATTERNS: Final[tuple[tuple[str, str], ...]] = (
     (
         "private_key",
         r"-----BEGIN[A-Z \-]*PRIVATE KEY-----[\s\S]*?-----END[A-Z \-]*PRIVATE KEY-----",
@@ -29,7 +45,7 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"),
     ("openai_proj", r"\bsk-proj-[A-Za-z0-9\-_]{40,}"),
     ("anthropic", r"\bsk-ant-[A-Za-z0-9\-_]{40,}"),
-    ("openai", r"(?<![a-zA-Z0-9])sk-[A-Za-z0-9\-_]{20,}"),
+    ("openai", r"\bsk-[A-Za-z0-9\-_]{20,}"),
     ("stripe", r"\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{20,}"),
     ("aws_access", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     ("aws_secret", r"aws_secret_access_key\s*[:=]\s*[A-Za-z0-9/+=]{20,}"),
@@ -40,6 +56,8 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("uri_userinfo", r"(?<=://)[^\s'\"/]*:[^\s'\"@/]+(?=@)"),
 )
 
+_DEFAULT_COMBINED_RE: Final = re.compile("|".join(f"(?P<{name}>{pat})" for name, pat in _PATTERNS))
+
 _HAS_INDICATOR: Final = re.compile(
     r"-----|eyJ|sk-|sk_|pk_|AKIA|ASIA|aws_secret|ghp_|xox|Bearer|Basic|://"
 )
@@ -49,6 +67,9 @@ _SENSITIVE_KEY: Final = re.compile(
 )
 _SAFE_KEYS: Final = frozenset(
     {"role", "content", "messages", "type", "name", "id", "text", "user", "system", "assistant"}
+)
+_SAFE_VALUES: Final = frozenset(
+    {"user", "assistant", "system", "tool", "function", "pending", "running", "completed", "failed"}
 )
 
 _UUID_RE: Final = re.compile(
@@ -62,6 +83,8 @@ _CONTAINER_TYPES: Final = (dict, list, tuple)
 
 
 def _is_number(s: str) -> bool:
+    if not all(c in "0123456789.-+eE" for c in s):
+        return False
     try:
         float(s)
         return True
@@ -73,8 +96,6 @@ def _is_safe(token: str) -> bool:
     if "/" in token or "\\" in token:
         return True
     if _HAS_DIGIT.search(token) is None:
-        return True
-    if _PROSE_RE.match(token) is not None:
         return True
     if _UUID_RE.match(token) is not None:
         return True
@@ -112,13 +133,15 @@ class Redactor:
         self._has_extra_patterns = bool(extra_patterns)
         self._safe_text_cache: dict[str, str] = {}
 
-        patterns: list[tuple[str, str]] = list(_PATTERNS)
         if extra_patterns:
+            patterns: list[tuple[str, str]] = list(_PATTERNS)
             for i, (name, pat) in enumerate(extra_patterns):
                 clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name) or "extra"
                 patterns.append((f"extra_{i}_{clean_name}", pat))
-        combined_pattern = "|".join(f"(?P<{name}>{pat})" for name, pat in patterns)
-        self._combined_re = re.compile(combined_pattern)
+            combined_pattern = "|".join(f"(?P<{name}>{pat})" for name, pat in patterns)
+            self._combined_re = re.compile(combined_pattern)
+        else:
+            self._combined_re = _DEFAULT_COMBINED_RE
 
     def placeholder(self, kind: str, secret: str) -> str:
         short = hmac.new(self._hmac_key, secret.encode("utf-8"), hashlib.sha256).hexdigest()[:8]
@@ -132,11 +155,11 @@ class Redactor:
 
     def _sub_layer2(self, match: re.Match[str]) -> str:
         token = match.group()
-        if (
-            len(token) >= self.min_token_len
-            and not _is_safe(token)
-            and _shannon(token) >= self.entropy_threshold
-        ):
+        if len(token) < self.min_token_len or _HAS_DIGIT.search(token) is None:
+            return token
+        if _is_safe(token):
+            return token
+        if _shannon(token) >= self.entropy_threshold:
             return self.placeholder("entropy", token)
         return token
 
@@ -147,18 +170,6 @@ class Redactor:
         cached = self._safe_text_cache.get(text)
         if cached is not None:
             return cached
-
-        has_ind = self._has_extra_patterns or (_HAS_INDICATOR.search(text) is not None)
-        has_candidate = (
-            self.enable_entropy
-            and (_HAS_DIGIT.search(text) is not None)
-            and (_CANDIDATE.search(text) is not None)
-        )
-
-        if not has_ind and not has_candidate:
-            if len(self._safe_text_cache) < 10_000:
-                self._safe_text_cache[text] = text
-            return text
 
         placeholders: list[str] = []
         nonce: str | None = None
@@ -175,18 +186,35 @@ class Redactor:
         else:
             working_text = text
 
-        res = working_text
+        has_ind = self._has_extra_patterns or (
+            (
+                "_" in working_text
+                or "-" in working_text
+                or ":" in working_text
+                or "eyJ" in working_text
+                or "AKIA" in working_text
+                or "ASIA" in working_text
+                or "xox" in working_text
+                or "Bearer" in working_text
+                or "Basic" in working_text
+            )
+            and (_HAS_INDICATOR.search(working_text) is not None)
+        )
         if has_ind:
-            res = self._combined_re.sub(self._sub_layer1, res)
+            res = self._combined_re.sub(self._sub_layer1, working_text)
+        else:
+            res = working_text
 
-        if self.enable_entropy and has_candidate:
+        if self.enable_entropy:
             if len(res) > self.entropy_max_scan_bytes:
                 logger.debug(
                     "redact_entropy_skipped_large_string",
                     length=len(res),
                     max_bytes=self.entropy_max_scan_bytes,
                 )
-            else:
+            elif not any(d in res for d in _DIGITS_TUPLE):
+                pass
+            elif _CANDIDATE.search(res) is not None:
                 res = _CANDIDATE.sub(self._sub_layer2, res)
 
         if placeholders and nonce is not None:
@@ -219,7 +247,7 @@ class Redactor:
                         new_k = self.redact(k)
 
                 if isinstance(v, str):
-                    if len(v) < 8:
+                    if len(v) < 8 or v in _SAFE_KEYS or v in _SAFE_VALUES:
                         new_dict[new_k] = v
                     else:
                         new_dict[new_k] = self.redact_text(v)
