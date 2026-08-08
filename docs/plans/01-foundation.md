@@ -1910,6 +1910,8 @@ class Redactor:
 
 ## Task 8 — MessagePack codec, snapshot envelope, and the migration registry
 
+**Status:** COMPLETED (VERDICT: PASS)
+
 **Goal:** Encode and decode state through `msgspec.msgpack` behind a versioned envelope,
 with a deterministic upgrade chain for old schema versions.
 
