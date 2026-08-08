@@ -12,6 +12,7 @@ import sys
 
 STEPS: list[tuple[str, list[str]]] = [
     ("layout", [sys.executable, "scripts/check_layout.py"]),
+    ("sync", ["uv", "sync", "--locked", "--all-extras", "--dev"]),
     ("format", ["uv", "run", "ruff", "format", "--check", "."]),
     ("lint", ["uv", "run", "ruff", "check", "."]),
     ("pyright", ["uv", "run", "pyright"]),
