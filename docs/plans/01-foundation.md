@@ -674,6 +674,8 @@ Task 2.
 
 ## Task 4 — CI skeleton
 
+**Status:** COMPLETED (VERDICT: PASS)
+
 **Goal:** GitHub Actions runs lint, both type checkers, the cross-platform test matrix,
 the benchmark budget gate, and the layout guard on every push and pull request.
 
@@ -830,8 +832,7 @@ jobs:
      Task 12 when real integration tests land.
 
 2. `.github/workflows/release.yml` — copy the Trusted-Publisher flow from
-   `06-python-monorepo-standards.md:176-203` verbatim, with `packages-dir:
-   python/chowki/dist/` and `id-token: write`. It is **not** exercised in Phase 1; add a
+   `06-python-monorepo-standards.md:176-203` verbatim, with `packages-dir: dist/` (since `uv build` writes artifacts to repo root `dist/`) and `id-token: write`. It is **not** exercised in Phase 1; add a
    top-of-file comment saying so.
 3. `.github/dependabot.yml` — weekly `github-actions` and `uv`/`pip` ecosystem updates.
 
