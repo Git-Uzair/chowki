@@ -42,19 +42,24 @@ EXCLUDED_DIR_NAMES = {
     ".mypy_cache",
     "dist",
     "build",
+    "htmlcov",
 }
 
 CHECKED_SUFFIXES = {
     ".py",
+    ".pyi",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
     ".md",
+    ".mdx",
+    ".json",
     ".toml",
     ".yml",
     ".yaml",
-    ".json",
     ".cfg",
     ".txt",
-    ".ts",
-    ".js",
     ".sh",
     ".ps1",
     ".bat",
@@ -97,7 +102,10 @@ def main() -> int:
         if path.resolve() == script_path:
             continue
 
-        if not (path.suffix in CHECKED_SUFFIXES or path.suffix == "" or path.name.startswith(".")):
+        if path.name.startswith(".coverage") or path.name == ".DS_Store":
+            continue
+
+        if not (path.suffix in CHECKED_SUFFIXES or path.suffix == ""):
             continue
 
         text = path.read_text(encoding="utf-8", errors="ignore")

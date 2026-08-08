@@ -41,10 +41,27 @@ def test_check_layout_detects_multiple_trailing_newlines(
     assert check_layout.main() == 1
 
 
-def test_check_layout_detects_banned_term_in_txt_ts_js(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "sample.ts",
+        "sample.js",
+        "sample.pyi",
+        "sample.tsx",
+        "sample.jsx",
+        "sample.mdx",
+        "sample.txt",
+        "LICENSE",
+        "README",
+        ".gitignore",
+        ".gitattributes",
+        ".gitkeep",
+    ],
+)
+def test_check_layout_detects_banned_term_in_various_file_types(
+    filename: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Banned product term in .txt, .ts, .js or extensionless files must fail."""
+    """Banned product term in .ts, .js, .pyi, .tsx, .jsx, .mdx and extensionless files must fail."""
     monkeypatch.setattr(check_layout, "ROOT", tmp_path)
     for d in check_layout.REQUIRED_DIRS:
         (tmp_path / d).mkdir(parents=True, exist_ok=True)
@@ -53,9 +70,27 @@ def test_check_layout_detects_banned_term_in_txt_ts_js(
         (tmp_path / f).write_text("content\n", encoding="utf-8")
 
     banned = "check" + "point"
-    (tmp_path / "sample.txt").write_text(f"some {banned} here\n", encoding="utf-8")
+    (tmp_path / filename).write_text(f"some {banned} here\n", encoding="utf-8")
 
     assert check_layout.main() == 1
+
+
+def test_check_layout_ignores_coverage_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """.coverage files must be ignored even if containing banned terms or bad newlines."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("content\n", encoding="utf-8")
+
+    banned = "check" + "point"
+    (tmp_path / ".coverage").write_text(f"binary {banned}\n\n", encoding="utf-8")
+    (tmp_path / ".coverage.machine.123.456").write_text(f"binary {banned}\n\n", encoding="utf-8")
+
+    assert check_layout.main() == 0
 
 
 def test_check_layout_ignores_excluded_directories(
