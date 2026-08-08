@@ -890,6 +890,13 @@ new packages.
 
 ## Task 5 — Core types and the error taxonomy
 
+**Status:** COMPLETED (VERDICT: PASS)
+
+**Executor Notes:**
+- `StrEnum` used for string enums on Python 3.11+.
+- `JSONValue` uses `None | bool | int | float | str | list[Any] | dict[str, Any]` because `msgspec` raises `TypeError` on recursive type alias forward refs.
+- `_empty_json_object` helper function used for default factories.
+
 **Goal:** Define every `msgspec.Struct`, enum, and exception the rest of Phase 1 depends
 on, so no later task invents an ad-hoc dict shape.
 
