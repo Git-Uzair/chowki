@@ -1,0 +1,10 @@
+{
+  "include": ["python/chowki/src", "python/chowki/tests", "scripts"],
+  "exclude": ["**/__pycache__", "**/.venv", "node", "dist", "build"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": "error",
+  "reportUnnecessaryTypeIgnoreComment": "error",
+  "venvPath": ".",
+  "venv": ".venv"
+}

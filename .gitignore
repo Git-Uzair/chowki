@@ -7,6 +7,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+python/chowki/src/chowki/_version.py
 
 # Testing & Quality
 .pytest_cache/

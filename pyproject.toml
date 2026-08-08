@@ -1,0 +1,49 @@
+[tool.uv.workspace]
+members = ["python/*"]
+
+[tool.uv]
+required-version = ">=0.4.0"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-benchmark>=4.0.0",
+    "hypothesis>=6.110.0",
+    "ruff>=0.6.0",
+    "pyright>=1.1.380",
+    "mypy>=1.11.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["python/chowki/src"]
+extend-exclude = [".venv", "node", "dist", "build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S", "ANN", "PTH"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"python/chowki/tests/**" = ["S101", "S105", "S106", "ANN201", "ANN001"]
+"scripts/**" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["chowki"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+mypy_path = "python/chowki/src"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["python/chowki/tests"]
+addopts = "--strict-markers --benchmark-disable"
+markers = [
+    "benchmark: performance budget test; run with --benchmark-only",
+    "integration: requires a storage backend",
+]
