@@ -59,6 +59,10 @@ class ChowkiEngine:
         self.blobs: BlobStore = BlobStore()
         self._pipelines: dict[str, SnapshotPipeline] = {}
 
+    @property
+    def resume_secret(self) -> bytes:
+        return self._config.resume_secret or self.redactor.hmac_key
+
     def pipeline_for(self, run_id: str) -> SnapshotPipeline:
         """Get or create memoised SnapshotPipeline for a given run_id."""
         if run_id not in self._pipelines:
