@@ -33,7 +33,10 @@ def test_encryption_requires_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from chowki.errors import ChowkiConfigError
 
     monkeypatch.delenv("CHOWKI_MASTER_KEY", raising=False)
-    with pytest.raises(ChowkiConfigError, match="CHOWKI_MASTER_KEY"):
+    with pytest.raises(
+        ChowkiConfigError,
+        match="encrypt_at_rest requires CHOWKI_MASTER_KEY or an explicit keyring",
+    ):
         ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), encrypt_at_rest=True))
 
 
@@ -66,4 +69,26 @@ def test_snapshots_are_written_to_storage_through_the_sink() -> None:
     pipe = engine.pipeline_for("r1")
     pipe.snapshot({"a": 1}, run_id="r1", workflow="w", step_index=0)
     assert len(store.list_snapshots("r1")) == 1
+    engine.close()
+
+
+def test_configure_invalid_arg_preserves_previous_engine() -> None:
+    reset_engine()
+    store = MemoryStorage()
+    configure(storage=store)
+    prev_engine = get_engine()
+    with pytest.raises(TypeError):
+        configure(invalid_kwarg=True)
+    assert get_engine() is prev_engine
+    assert not store._closed  # pyright: ignore[reportPrivateUsage]
+    reset_engine()
+
+
+def test_pipeline_for_ignores_keyring_when_encrypt_at_rest_is_false() -> None:
+    from chowki.state.crypto import KeyRing
+
+    kr = KeyRing.generate()
+    engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), keyring=kr, encrypt_at_rest=False))
+    pipe = engine.pipeline_for("run_1")
+    assert pipe._keyring is None  # pyright: ignore[reportPrivateUsage]
     engine.close()
