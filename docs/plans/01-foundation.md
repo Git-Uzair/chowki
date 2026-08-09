@@ -2158,6 +2158,11 @@ def migrate(payload: dict[str, Any], *, from_version: int, to_version: int) -> d
 ## Task 9 — RFC 6902 delta engine and compaction policy
 
 **Status:** COMPLETED (VERDICT: PASS)
+**Failed Verify Cycles:** 2
+**Attempt Ledger:**
+- attempt 1: Return self.base directly in DeltaChain.materialize() when self.patches is empty -> FAIL (materialize() on depth 0 returned mutable reference to cached base)
+- attempt 2: Return deepcopy(self.base) in DeltaChain.materialize() when self.patches is empty -> FAIL (apply_patch raised jsonpointer.JsonPointerException instead of ChowkiStateError on missing path)
+- attempt 3: Catch (jsonpatch.JsonPatchException, jsonpointer.JsonPointerException) in apply_patch and _find_failing_op -> PASS
 
 **Goal:** Persist per-step diffs instead of full dumps (ADR-002), reconstruct state from
 a base plus a patch chain, and force a new base snapshot per the compaction rule.
@@ -2359,6 +2364,8 @@ class DeltaChain:
 ---
 
 ## Task 10 — AES-256-GCM encryption at rest and the KeyRing
+
+**Status:** COMPLETED (VERDICT: PASS)
 
 **Goal:** ADR-003's second half: AEAD encryption with 96-bit nonces, AAD session
 binding, and zero-downtime key rotation.
