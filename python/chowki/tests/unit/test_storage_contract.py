@@ -158,3 +158,39 @@ def test_audit_log_is_append_only(store: StorageAdapter) -> None:
     records = store.list_audit()
     assert [r["audit_id"] for r in records] == ["a1", "a2"]
     assert not hasattr(store, "delete_audit")
+
+
+def test_mutating_record_after_put_run_does_not_alter_stored_state(
+    store: StorageAdapter,
+) -> None:
+    rec = _run("r_mutate")
+    rec.status = RunStatus.PENDING
+    store.put_run(rec)
+    rec.status = RunStatus.FAILED
+    stored = store.get_run("r_mutate")
+    assert stored is not None
+    assert stored.status is RunStatus.PENDING
+
+
+def test_consume_nonce_on_expired_nonce_twice_returns_true_then_false(
+    store: StorageAdapter,
+) -> None:
+    first = store.consume_nonce("exp_nonce", expires_at_epoch=0)
+    second = store.consume_nonce("exp_nonce", expires_at_epoch=0)
+    assert (first, second) == (True, False)
+
+
+def test_calling_method_after_close_raises_storage_error(
+    store: StorageAdapter,
+) -> None:
+    store.close()
+    with pytest.raises(ChowkiStorageError):
+        store.get_run("r1")
+    with pytest.raises(ChowkiStorageError):
+        store.put_run(_run("r1"))
+    with pytest.raises(ChowkiStorageError):
+        store.list_runs()
+    with pytest.raises(ChowkiStorageError):
+        store.consume_nonce("n1", expires_at_epoch=4_102_444_800)
+    with pytest.raises(ChowkiStorageError):
+        store.put_blob(b"data")
