@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import math
 import re
+import sys
 import uuid
 from collections import Counter
 from collections.abc import Sequence
@@ -23,6 +24,7 @@ from typing import Any, Final, cast, overload
 
 import structlog
 
+from chowki.state.blobs import BlobStore, extract_string
 from chowki.types import JSONValue
 
 logger = structlog.get_logger()
@@ -76,6 +78,9 @@ _UUID_RE: Final = re.compile(
 _HEX_RE: Final = re.compile(r"^[0-9a-fA-F]+$")
 
 _CONTAINER_TYPES: Final = (dict, list, tuple)
+
+#: A minimum blob length no string can reach, used as the "no blob store" sentinel.
+_NEVER_BLOB: Final = sys.maxsize
 
 
 def _has_indicator(t: str) -> bool:
@@ -153,6 +158,9 @@ class Redactor:
         self.enable_entropy = enable_entropy
         self.entropy_max_scan_bytes = entropy_max_scan_bytes
         self._has_extra_patterns = bool(extra_patterns)
+        # Caller-supplied patterns can match anything, including all-letter tokens, so
+        # the cheap inert screen in _redact_leaf is switched off when any are configured.
+        self._screen = not extra_patterns
         self._entropy_skip_count = 0
 
         if extra_patterns:
@@ -264,92 +272,157 @@ class Redactor:
 
         return res
 
-    @overload
-    def redact(self, value: dict[str, Any]) -> dict[str, Any]: ...
+    def _redact_leaf(
+        self, text: str, store: BlobStore | None, threshold: int, blob_min: int
+    ) -> str:
+        """Redact one string leaf, then hand it to blob extraction if a store is given.
+
+        Fusing the blob pass into this walk keeps the pipeline's order — redact first,
+        so a large secret is replaced by a short placeholder and never becomes a blob —
+        while paying for one traversal of the state tree instead of two.
+
+        The screen that skips ``redact_text`` is the hot path of every snapshot, so it
+        is spelled out here rather than hidden behind a call. It is sound because layer 1
+        cannot fire without one of the six characters ``_has_indicator`` probes for, and
+        layer 2 cannot fire without an ASCII digit: its candidate tokens come from an
+        ASCII-only class and ``_sub_layer2`` returns any token without a digit untouched.
+        Each ``in`` is a single ``memchr`` that stops at the first hit, so a string that
+        does need the full scan falls through almost immediately, while inert prose is
+        cleared for about a nanosecond per character. Keep these 16 characters in step
+        with ``_PATTERNS``; ``test_no_known_secret_is_screened_out_as_inert`` guards it.
+        """
+        n = len(text)
+        if (
+            n < 8  # redact_text() is a no-op below 8 characters
+            or (n < 10 and text in _SAFE_VALUES)
+            or (
+                self._screen
+                and not (
+                    "0" in text
+                    or "1" in text
+                    or "2" in text
+                    or "3" in text
+                    or "4" in text
+                    or "5" in text
+                    or "6" in text
+                    or "7" in text
+                    or "8" in text
+                    or "9" in text
+                    or "-" in text
+                    or "_" in text
+                    or ":" in text
+                    or "J" in text
+                    or "B" in text
+                    or "I" in text
+                )
+            )
+        ):
+            # Inert. Nothing that needs the ``ref:``/``ref-lit:`` escape can be inert
+            # (both prefixes carry gate characters), so only the blob threshold is left.
+            if n <= blob_min:
+                return text
+            # blob_min is _NEVER_BLOB whenever store is None, so getting here proves one.
+            return extract_string(text, cast(BlobStore, store), threshold_bytes=threshold)
+        redacted = self.redact_text(text)
+        if store is None:
+            return redacted
+        return extract_string(redacted, store, threshold_bytes=threshold)
 
     @overload
-    def redact(self, value: list[Any]) -> list[Any]: ...
+    def redact(
+        self,
+        value: dict[str, Any],
+        *,
+        blobs: BlobStore | None = ...,
+        blob_threshold_bytes: int = ...,
+    ) -> dict[str, Any]: ...
 
     @overload
-    def redact(self, value: JSONValue) -> JSONValue: ...
+    def redact(
+        self, value: list[Any], *, blobs: BlobStore | None = ..., blob_threshold_bytes: int = ...
+    ) -> list[Any]: ...
 
-    def redact(self, value: Any) -> Any:
-        return self._redact_any(value)
+    @overload
+    def redact(
+        self, value: JSONValue, *, blobs: BlobStore | None = ..., blob_threshold_bytes: int = ...
+    ) -> JSONValue: ...
 
-    def _redact_any(self, value: Any) -> Any:
+    def redact(
+        self, value: Any, *, blobs: BlobStore | None = None, blob_threshold_bytes: int = 4096
+    ) -> Any:
+        """Return a redacted copy of ``value``.
+
+        Containers are always rebuilt, so the result shares no mutable object with the
+        caller's tree and cannot be changed underneath a holder of the result.
+
+        When ``blobs`` is given, string leaves over ``blob_threshold_bytes`` are also
+        extracted into that store in the same pass (see ``_redact_leaf``).
+        """
+        # A length no string can reach stands in for "no blob store", so the walk asks
+        # one question per leaf instead of two.
+        blob_min = blob_threshold_bytes // 4 if blobs is not None else _NEVER_BLOB
+        return self._redact_any(value, blobs, blob_threshold_bytes, blob_min)
+
+    def _redact_any(
+        self, value: Any, store: BlobStore | None, threshold: int, blob_min: int
+    ) -> Any:
         if isinstance(value, dict):
             source = cast("dict[Any, Any]", value)
-            changed = False
             new_dict: dict[Any, Any] = {}
             for k, v in source.items():
-                if isinstance(k, str):
-                    if k in _SAFE_KEYS:
-                        new_k: Any = k
-                    elif k.startswith("[") and PLACEHOLDER_RE.fullmatch(k):
+                if k in _SAFE_KEYS:  # a frozenset of str: non-str keys fall through
+                    new_k: Any = k
+                elif isinstance(k, str):
+                    if k.startswith("[") and PLACEHOLDER_RE.fullmatch(k):
                         new_k = k
                     else:
                         new_k = self.redact_text(k) if len(k) >= 8 else k
                         if len(k) >= 3 and _SENSITIVE_KEY.search(k):
                             s_v = str(v)
                             if s_v.startswith("[") and PLACEHOLDER_RE.fullmatch(s_v):
-                                new_v = v
+                                new_dict[new_k] = v
                             else:
-                                new_v = self.placeholder("key_name", s_v)
-                            new_dict[new_k] = new_v
-                            changed = True
+                                new_dict[new_k] = self.placeholder("key_name", s_v)
                             continue
                 else:
-                    new_k = self._redact_any(k)
+                    # Keys are never blob-extracted: a ref would not survive inlining.
+                    new_k = self._redact_any(k, None, threshold, _NEVER_BLOB)
 
                 if isinstance(v, str):
-                    if (
-                        len(v) < 8
-                        or v in _SAFE_VALUES
-                        or (v.isalpha() and not ("AKIA" in v or "ASIA" in v))
-                    ):
-                        new_v = v
+                    # Role and status words dominate agent state; clearing them here
+                    # saves the call into _redact_leaf, which would only repeat this
+                    # same lookup. The length guard keeps a huge string from being
+                    # hashed just to miss the set.
+                    if len(v) < 10 and v in _SAFE_VALUES:
+                        new_dict[new_k] = v
                     else:
-                        new_v = self.redact_text(v)
+                        new_dict[new_k] = self._redact_leaf(v, store, threshold, blob_min)
                 elif isinstance(v, _CONTAINER_TYPES):
-                    new_v = self._redact_any(v)
+                    new_dict[new_k] = self._redact_any(v, store, threshold, blob_min)
                 else:
-                    new_v = v
+                    new_dict[new_k] = v
 
-                if not changed and (new_k is not k or new_v is not v):
-                    changed = True
-                new_dict[new_k] = new_v
-
-            return new_dict if changed else source
+            return new_dict
 
         if isinstance(value, list):
             items = cast("list[Any]", value)
-            changed = False
-            new_list: list[Any] = []
-            for item in items:
-                new_item = self._redact_any(item)
-                if not changed and new_item is not item:
-                    changed = True
-                new_list.append(new_item)
-            return new_list if changed else items
+            return [
+                self._redact_leaf(item, store, threshold, blob_min)
+                if isinstance(item, str)
+                else self._redact_any(item, store, threshold, blob_min)
+                for item in items
+            ]
 
         if isinstance(value, str):
-            if (
-                len(value) < 8
-                or value in _SAFE_VALUES
-                or (value.isalpha() and not ("AKIA" in value or "ASIA" in value))
-            ):
-                return value
-            return self.redact_text(value)
+            return self._redact_leaf(value, store, threshold, blob_min)
 
         if isinstance(value, tuple):
             entries = cast("tuple[Any, ...]", value)
-            changed = False
-            new_tuple: list[Any] = []
-            for item in entries:
-                new_item = self._redact_any(item)
-                if not changed and new_item is not item:
-                    changed = True
-                new_tuple.append(new_item)
-            return tuple(new_tuple) if changed else entries
+            return tuple(
+                self._redact_leaf(item, store, threshold, blob_min)
+                if isinstance(item, str)
+                else self._redact_any(item, store, threshold, blob_min)
+                for item in entries
+            )
 
         return value

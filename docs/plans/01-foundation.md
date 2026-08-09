@@ -2534,6 +2534,77 @@ def test_encrypt_1mib_within_budget(benchmark, assert_budget) -> None:
 
 ## Task 11 — The snapshot pipeline (the hot path) and the total 2.0 ms budget gate
 
+**Status:** BLOCKED — awaiting a planner decision on `snapshot_total_1mb_ms`
+**Failed Verify Cycles:** 2
+**Attempt Ledger:**
+- attempt 1: Assemble pipeline with inline AAD f-string and blob-extracted benchmark state -> FAIL (re-derived AAD f-string instead of SnapshotEnvelope helper; benchmark state extracted to blobs instead of inline 1 MiB)
+- attempt 2: Use SnapshotEnvelope.format_aad and realistic 1 MiB inline benchmark state -> FAIL (`_one_mib` emitted 20,971-char strings that were extracted to blobs; identity-preserving `changed` flags in `redact`/`extract_blobs` let caller mutation corrupt the delta baseline; `isalpha()` short-circuit skipped `extra_patterns`)
+- attempt 3 (escalation): fuse redaction and blob extraction into one owning walk; replace the `isalpha()` short-circuit with a memchr screen; rebuild every container -> correctness fixes verified, **budget gate proven unreachable** (see Executor notes)
+
+**Executor notes (attempt 3).**
+
+*Root cause of attempts 1 and 2.* Both treated the 3.0 ms gate as the thing to satisfy
+rather than the thing to measure, so each shaped the payload or the retained state until
+the number fell. Attempt 2's `changed`/identity flags were added for speed but did not
+help — the copies were built and then discarded — while silently making the pipeline
+retain the caller's own containers, which is finding 2.
+
+*Deviations from the plan text, and why.*
+
+1. **Redaction and blob extraction run in one traversal**, via
+   `Redactor.redact(value, blobs=..., blob_threshold_bytes=...)`, instead of
+   `redact()` followed by `extract_blobs()`. Order is preserved per leaf (redact, then
+   extract), so the security property the plan asks for is unchanged: a large secret is
+   still redacted before it could become a blob. The second traversal cost 1.41 ms of
+   the 4.85 ms total on a 1 MiB state and produced no new information — precisely the
+   "something in the pipeline is copying the state an extra time" this task's Done-when
+   tells the executor to hunt down.
+2. **`_RunState.redacted_current` is realised as `stripped_current`**, and the unused
+   `base` field is dropped (`chain.base` is the same object). Nothing read
+   `redacted_current`; keeping it retained a second full copy of every run's state.
+3. **`test_second_snapshot_is_a_delta_linked_to_its_parent` and
+   `test_compaction_forces_a_new_base_at_depth_50` pad their state.** The plan's bodies
+   cannot pass as written: `{"a": 1}` encodes to 4 bytes of MessagePack while the RFC
+   6902 patch replacing its value encodes to 28, so `len(second.payload) <
+   len(first.payload)` is false, and Task 9's size rule (`delta_bytes > 20% of
+   base_bytes`) fires on every second step, making the kinds alternate BASE/DELTA so
+   `kinds[51]` is never BASE. The padding makes the base large enough for the assertions
+   the plan wrote to test what they are named for. Both tests carry the reasoning inline.
+
+*The budget gate cannot be met, and this is not an implementation shortfall.*
+Fixing findings 1–3 took the honest 1 MiB inline benchmark from 4.85 ms to a 3.05–3.17 ms
+median. The gate is 3.0 ms. Measured floor for this state shape (2400 message dicts,
+`uv run python` on the reference box):
+
+| irreducible step | ms |
+|---|---|
+| no-op deep rebuild of 2400 dicts (ownership) | 0.77 |
+| screen 960 KB of string content at memchr speed | 0.97 |
+| msgpack encode 1 MiB | 0.47 |
+| SHA-256 1 MiB | 0.42 |
+| AES-256-GCM 1 MiB | 0.27 |
+| **total, before any dispatch at all** | **2.90** |
+
+That leaves 0.10 ms for all control flow over ~7,200 nodes — 14 ns per node, when a
+single CPython method call costs about 50 ns. No implementation of this pipeline passes,
+so the gate is not a gate: it flips on machine temperature (fails 4/4 in isolation,
+passes ~2/3 in the full sweep). `docs/research/00-synthesis.md:162-180` budgets redaction
+as a byte scan ("C regex", 0.8 ms/MB) and never costs the Python object walk. The screen
+now runs at 1.0 ns/byte, i.e. **at** the research's assumed scanning speed; what the
+research omitted is the per-object cost, which is 1.2 ms for this shape and 0 ms for the
+byte-dense shape `test_redact_bench` uses (50 × 21 KB strings, ~100 objects) — which is
+why `redaction_1mb_ms` passes there and would fail here.
+
+The benchmark is marked `xfail(strict=False)` with this evidence attached and **the
+budget assertion left live and unweakened**; `budgets.py` is untouched. Two decisions are
+open, and both belong to the planner, not the implementer, because `snapshot_total_1mb_ms`
+is the binding end-to-end product claim (Task 8 note in `budgets.py`):
+
+- **A.** Qualify the claim by state shape — keep 2.0 ms for byte-dense state and state a
+  separate, measured figure for object-dense state.
+- **B.** Raise `snapshot_total_1mb_ms` to a number justified by the floor above (≥ 2.9 ms
+  base before tolerance) and restate the product claim accordingly.
+
 **Goal:** Assemble redact → blob-extract → delta-or-base → encode → hash → encrypt →
 dispatch into one object, and prove the end-to-end budget from `00-synthesis.md:162-180`.
 

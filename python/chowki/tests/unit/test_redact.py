@@ -36,6 +36,15 @@ def test_every_known_credential_format_is_redacted(redactor: Redactor, name: str
     assert PLACEHOLDER_RE.search(out) is not None
 
 
+@pytest.mark.parametrize("name", sorted(SECRETS))
+def test_no_known_secret_is_screened_out_as_inert(redactor: Redactor, name: str) -> None:
+    """Pins `_INERT_TABLE` to `_PATTERNS`: the container walk's fast path must not
+    declare a string carrying a known credential inert and skip `redact_text`."""
+    secret = SECRETS[name]
+    out = redactor.redact({"messages": [{"content": f"the value is {secret} ok"}]})
+    assert secret not in str(out)
+
+
 def test_uri_redaction_keeps_the_host(redactor: Redactor) -> None:
     out = redactor.redact_text(SECRETS["pg_uri"])
     assert "hunter2supersecret" not in out
@@ -226,6 +235,20 @@ def test_extra_patterns_without_builtin_indicators() -> None:
     out = r.redact_text("id CORP1234567890 end")
     assert "CORP1234567890" not in out
     assert PLACEHOLDER_RE.search(out) is not None
+
+
+def test_extra_patterns_match_all_letter_tokens_inside_containers() -> None:
+    """A user pattern that matches an all-letter token must fire through redact() too.
+
+    The all-alpha fast path in the container walk is only sound for the built-in
+    patterns; a caller-supplied pattern can match letters only.
+    """
+    r = Redactor(hmac_key=KEY, extra_patterns=[("corp", r"CORP[A-Z]{10}")])
+    out = r.redact({"note": "CORPABCDEFGHIJ"})
+    assert "CORPABCDEFGHIJ" not in str(out)
+    assert PLACEHOLDER_RE.fullmatch(str(out["note"])) is not None
+    assert PLACEHOLDER_RE.fullmatch(str(r.redact("CORPABCDEFGHIJ"))) is not None
+    assert PLACEHOLDER_RE.fullmatch(str(r.redact(["CORPABCDEFGHIJ"])[0])) is not None
 
 
 def test_short_string_uri_userinfo_redaction(redactor: Redactor) -> None:

@@ -32,6 +32,12 @@ def test_first_snapshot_is_a_base() -> None:
 
 
 def test_second_snapshot_is_a_delta_linked_to_its_parent() -> None:
+    """Plan deviation (Task 11): the plan's `{"a": 1}` -> `{"a": 2}` cannot satisfy the
+    plan's own `len(second.payload) < len(first.payload)`. A one-key base encodes to 4
+    bytes of MessagePack while the RFC 6902 patch that replaces its value encodes to 28,
+    so a delta is only smaller once the base carries more than the patch describes. The
+    padding restores the property the assertion is there to prove.
+    """
     pipe = make_pipeline()
     base_state = {"a": 1, "data": "x" * 200}
     next_state = {"a": 2, "data": "x" * 200}
@@ -76,9 +82,14 @@ def test_no_keyring_means_no_encryption_metadata() -> None:
 
 
 def test_compaction_forces_a_new_base_at_depth_50() -> None:
+    """Plan deviation (Task 11): with the plan's `{"n": i}` the depth rule never runs.
+    A 4-byte base is exceeded by a 28-byte patch, so `should_compact`'s size rule
+    (delta_bytes > 20% of base_bytes, Task 9) fires on every second step and the kinds
+    alternate BASE/DELTA forever. Padding the state makes the base large enough for the
+    depth-50 rule to be the one under test.
+    """
     pipe = make_pipeline()
-    # Non-string padding prevents blob store extraction so base_bytes stays large (~12KB),
-    # ensuring delta_bytes stays under 20% until depth=50 triggers compaction.
+    # Integer padding: nothing here reaches the blob threshold, so base_bytes stays ~12 KB.
     state_padding = {f"k{j}": j for j in range(1000)}
     kinds = [
         pipe.snapshot({"n": i, **state_padding}, run_id="r", workflow="w", step_index=i).kind
@@ -111,6 +122,37 @@ def test_dispatch_receives_every_envelope() -> None:
 def test_restore_of_an_unknown_run_raises() -> None:
     with pytest.raises(ChowkiStateError):
         make_pipeline().restore(run_id="nope")
+
+
+def test_caller_may_mutate_its_state_dict_between_steps() -> None:
+    """The pipeline must own what it retains, or the next delta diffs against itself."""
+    pipe = make_pipeline()
+    state: dict[str, object] = {"a": 1, "data": "x" * 200}
+    first = pipe.snapshot(state, run_id="r", workflow="w", step_index=0)
+    state["a"] = 2
+    second = pipe.snapshot(state, run_id="r", workflow="w", step_index=1)
+
+    assert second.kind is SnapshotKind.DELTA
+    loaded = pipe.load([first, second])
+    assert isinstance(loaded, dict)
+    assert loaded["a"] == 2
+    restored = pipe.restore(run_id="r")
+    assert isinstance(restored, dict)
+    assert restored["a"] == 2
+
+
+def test_a_secret_written_into_the_caller_dict_after_a_snapshot_stays_out() -> None:
+    """Module invariant 1: raw state is never retained, not even by aliasing."""
+    pipe = make_pipeline()
+    state: dict[str, object] = {"a": 1, "nested": {"data": "x" * 200}}
+    pipe.snapshot(state, run_id="r", workflow="w", step_index=0)
+
+    state["leaked"] = SECRET
+    nested = state["nested"]
+    assert isinstance(nested, dict)
+    nested["leaked"] = SECRET
+
+    assert SECRET not in repr(pipe.restore(run_id="r"))
 
 
 def test_load_cold_path_reconstruction() -> None:
