@@ -100,7 +100,7 @@ class DeltaChain:
         and in_place=True for intermediate steps to optimize performance.
         """
         if not self.patches:
-            return self.base
+            return copy.deepcopy(self.base)
 
         curr = apply_patch(self.base, self.patches[0], in_place=False)
         for patch in self.patches[1:]:
