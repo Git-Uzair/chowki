@@ -2157,6 +2157,8 @@ def migrate(payload: dict[str, Any], *, from_version: int, to_version: int) -> d
 
 ## Task 9 — RFC 6902 delta engine and compaction policy
 
+**Status:** COMPLETED (VERDICT: PASS)
+
 **Goal:** Persist per-step diffs instead of full dumps (ADR-002), reconstruct state from
 a base plus a patch chain, and force a new base snapshot per the compaction rule.
 
