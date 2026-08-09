@@ -180,6 +180,16 @@ def test_consume_nonce_on_expired_nonce_twice_returns_true_then_false(
     assert (first, second) == (True, False)
 
 
+def test_expired_nonce_stays_consumed_after_a_later_unrelated_consume(
+    store: StorageAdapter,
+) -> None:
+    """A consumed nonce must never become replayable, expired or not."""
+    first = store.consume_nonce("A", expires_at_epoch=0)
+    second = store.consume_nonce("B", expires_at_epoch=4_000_000_000)
+    third = store.consume_nonce("A", expires_at_epoch=0)
+    assert (first, second, third) == (True, True, False)
+
+
 def test_calling_method_after_close_raises_storage_error(
     store: StorageAdapter,
 ) -> None:

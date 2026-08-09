@@ -2842,10 +2842,16 @@ Non-negotiable invariants to state in the module docstring:
 ## Task 12 — Storage adapters: protocol, in-memory, and embedded SQLite
 
 **Status:** IN_PROGRESS
-**Failed Verify Cycles:** 1
+**Failed Verify Cycles:** 2
 **Attempt Ledger:**
 - attempt 1: Implement MemoryStorage and SQLiteStorage adapters -> FAIL (MemoryStorage retained caller references on put_run/put_step/append_audit; SQLiteStorage consume_nonce purged expired nonces before insert; MemoryStorage close() was a no-op instead of raising ChowkiStorageError)
-- attempt 2: Deepcopy records in MemoryStorage; enforce close() state checks; single-use insert before purge in consume_nonce -> PENDING_VERIFICATION
+- attempt 2: Deepcopy records in MemoryStorage; enforce close() state checks; single-use insert before purge in consume_nonce -> FAIL (the surviving purge deleted *other* expired nonces, so a consumed expired nonce became replayable after any later consume_nonce call)
+- attempt 3 (escalation): Drop nonce expiry GC entirely so both adapters treat consume_nonce as lifetime single-use; add contract test A/B/A -> (True, True, False); centralise blob ref derivation in `chowki.state.blobs.make_blob_ref`; add the `status` column to the `idempotency` table -> PENDING_VERIFICATION
+  - **Deviation from step 3:** the plan's "opportunistically `DELETE FROM nonces WHERE
+    expires_at < ?` on each call" is dropped. Any expiry-driven delete removes a nonce from
+    the very membership set that makes replay detection work, so it cannot coexist with
+    single-use semantics. Expired-row reclamation is deferred to an explicit maintenance
+    operation in a later phase rather than being folded into the consume path.
 
 **Goal:** Persist runs, steps, snapshots, blobs, idempotency keys, nonces, and audit
 records behind one narrow protocol, with SQLite as the zero-config default
