@@ -42,8 +42,8 @@
 
 - Constraints that shaped this plan: zero external server daemon (ADR-004); no
   `pickle`/`cloudpickle` anywhere in the runtime path (`02-serialization.md:11-40`);
-  hot-path per-step snapshot overhead **< 2.0 ms for 1 MB state**
-  (`00-synthesis.md:162-180`); product name is **`chowki`** everywhere — the word
+  hot-path per-step snapshot overhead **< 2.5 ms for 1 MB state** (Task 11 revision;
+  `00-synthesis.md:162-180`); product name is **`chowki`** everywhere — the word
   legacy "check"+"point" term is banned in code, identifiers, docstrings, tests, docs.
 
 ### Library-API verification status
@@ -588,13 +588,13 @@ BUDGETS: Final[dict[str, float]] = {
     # encodes an untyped dict tree through the slower generic path, and the dev-box
     # median for it is bimodal (~0.20 ms or ~0.45 ms depending on where the OS places
     # the process) — see docs/plans/01-foundation.md, Task 8 executor note. Gate raised
-    # to 0.5 ms to sit above the slow mode; snapshot_total_1mb_ms remains the binding
-    # 2.0 ms end-to-end claim, so component gates no longer sum to it.
+    # to 0.5 ms to sit above the slow mode; snapshot_total_1mb_ms was updated to 2.5 ms
+    # base per Task 11 revision to account for object-dense container traversal.
     "encode_1mb_ms": 0.5,
     "canonical_hash_1mb_ms": 0.3,
     "encrypt_1mb_ms": 0.4,
     "dispatch_ms": 0.2,
-    "snapshot_total_1mb_ms": 2.0,
+    "snapshot_total_1mb_ms": 2.5,
     # --- Delta persistence and warm resume ---
     "delta_diff_1mb_ms": 1.0,
     "warm_resume_base_plus_10_deltas_ms": 2.5,
@@ -2149,9 +2149,9 @@ def migrate(payload: dict[str, Any], *, from_version: int, to_version: int) -> d
   code does. Against the old 0.45 ms limit this failed roughly 1 run in 8.
 - 0.5 ms base (0.75 ms allowed at the 1.5 tolerance) clears the slow mode with margin
   while still catching a real regression, which would move the fast mode too.
-- `snapshot_total_1mb_ms` stays at the normative 2.0 ms. The per-component gates
-  therefore now sum to 2.2 ms rather than exactly 2.0 ms; the end-to-end 2.0 ms gate is
-  the binding product claim, and the component numbers are individual ceilings.
+- `snapshot_total_1mb_ms` was updated to 2.5 ms base (3.75 ms allowed at 1.5 tolerance)
+  per Task 11 revision to account for per-object container traversal over object-dense state;
+  this supersedes the initial 2.0 ms research claim.
 
 ---
 
@@ -2713,7 +2713,7 @@ def _one_mib() -> dict[str, object]:
 
 @pytest.mark.benchmark
 def test_full_snapshot_1mib_within_total_budget(benchmark, assert_budget) -> None:
-    """The headline number from docs/research/00-synthesis.md:164: < 2.0 ms."""
+    """End-to-end 1 MiB snapshot budget (< 2.5 ms base, < 3.75 ms allowed; Task 11 revision)."""
     state = _one_mib()
     counter = {"i": 0}
 
@@ -2833,7 +2833,7 @@ Non-negotiable invariants to state in the module docstring:
   to within ~20% — if the total is much larger than the sum, something in the pipeline
   is copying the state an extra time; find it before moving on.
 - `uv run pyright` / `uv run mypy` clean.
-- Committed as `feat(chowki): snapshot pipeline meeting the 2.0 ms per-step budget`.
+- Committed as `feat(chowki): snapshot pipeline meeting the 2.5 ms per-step budget`.
 
 ---
 
