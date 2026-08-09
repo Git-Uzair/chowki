@@ -582,7 +582,7 @@ from typing import Final
 REFERENCE_STATE_BYTES: Final = 1_048_576
 
 BUDGETS: Final[dict[str, float]] = {
-    # --- Per-step snapshot pipeline, 1 MiB state (total must be < 2.0 ms) ---
+    # --- Per-step snapshot pipeline, 1 MiB state (total must be < 2.5 ms) ---
     "redaction_1mb_ms": 0.8,
     # The research figure is 0.3 ms for msgspec's *Struct* encoder. The 1 MiB gate
     # encodes an untyped dict tree through the slower generic path, and the dev-box
@@ -2833,7 +2833,7 @@ Non-negotiable invariants to state in the module docstring:
   to within ~20% — if the total is much larger than the sum, something in the pipeline
   is copying the state an extra time; find it before moving on.
 - `uv run pyright` / `uv run mypy` clean.
-- Committed as `feat(chowki): snapshot pipeline meeting the 2.5 ms per-step budget`.
+- Committed snapshot pipeline meeting the 2.5 ms per-step budget (`cb8954f` and follow-ups).
 
 ---
 
