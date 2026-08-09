@@ -73,6 +73,14 @@ def test_chain_reconstructs_state() -> None:
     assert chain.depth == 10
 
 
+def test_materialize_zero_patch_chain_returns_copy() -> None:
+    chain = DeltaChain(base={"n": 0})
+    m = chain.materialize()
+    assert isinstance(m, dict)
+    m["n"] = 99
+    assert chain.base == {"n": 0}
+
+
 def test_compaction_triggers_at_depth_50() -> None:
     assert MAX_DELTA_CHAIN == 50
     assert should_compact(depth=49, delta_bytes=0, base_bytes=1_000_000) is False
