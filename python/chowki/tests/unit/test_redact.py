@@ -251,6 +251,14 @@ def test_extra_patterns_match_all_letter_tokens_inside_containers() -> None:
     assert PLACEHOLDER_RE.fullmatch(str(r.redact(["XYZACDEFG"])[0])) is not None
 
 
+def test_extra_patterns_match_safe_value_tokens() -> None:
+    """Caller-supplied patterns must match even tokens present in _SAFE_VALUES."""
+    r = Redactor(hmac_key=KEY, extra_patterns=[("custom", r"completed")])
+    assert PLACEHOLDER_RE.fullmatch(str(r.redact(["completed"])[0])) is not None
+    assert PLACEHOLDER_RE.fullmatch(str(r.redact("completed"))) is not None
+    assert PLACEHOLDER_RE.fullmatch(str(r.redact({"status": "completed"})["status"])) is not None
+
+
 def test_short_string_uri_userinfo_redaction(redactor: Redactor) -> None:
     out = redactor.redact_text("http://u:p1@x")
     assert "u:p1" not in out
@@ -289,6 +297,7 @@ def test_oversized_strings_skip_entropy_but_not_layer_one() -> None:
     out = r.redact_text(big)
     assert SECRETS["openai"] not in out
     assert PLACEHOLDER_RE.search(out) is not None
+    assert r.entropy_skip_count == 1
 
 
 def test_entropy_max_scan_bytes_default() -> None:

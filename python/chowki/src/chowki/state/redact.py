@@ -294,26 +294,28 @@ class Redactor:
         n = len(text)
         if (
             n < 8  # redact_text() is a no-op below 8 characters
-            or (n < 10 and text in _SAFE_VALUES)
             or (
                 self._screen
-                and not (
-                    "0" in text
-                    or "1" in text
-                    or "2" in text
-                    or "3" in text
-                    or "4" in text
-                    or "5" in text
-                    or "6" in text
-                    or "7" in text
-                    or "8" in text
-                    or "9" in text
-                    or "-" in text
-                    or "_" in text
-                    or ":" in text
-                    or "J" in text
-                    or "B" in text
-                    or "I" in text
+                and (
+                    (n < 10 and text in _SAFE_VALUES)
+                    or not (
+                        "0" in text
+                        or "1" in text
+                        or "2" in text
+                        or "3" in text
+                        or "4" in text
+                        or "5" in text
+                        or "6" in text
+                        or "7" in text
+                        or "8" in text
+                        or "9" in text
+                        or "-" in text
+                        or "_" in text
+                        or ":" in text
+                        or "J" in text
+                        or "B" in text
+                        or "I" in text
+                    )
                 )
             )
         ):
@@ -393,7 +395,7 @@ class Redactor:
                     # saves the call into _redact_leaf, which would only repeat this
                     # same lookup. The length guard keeps a huge string from being
                     # hashed just to miss the set.
-                    if len(v) < 10 and v in _SAFE_VALUES:
+                    if self._screen and len(v) < 10 and v in _SAFE_VALUES:
                         new_dict[new_k] = v
                     else:
                         new_dict[new_k] = self._redact_leaf(v, store, threshold, blob_min)
