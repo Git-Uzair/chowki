@@ -2841,6 +2841,12 @@ Non-negotiable invariants to state in the module docstring:
 
 ## Task 12 — Storage adapters: protocol, in-memory, and embedded SQLite
 
+**Status:** IN_PROGRESS
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: Implement MemoryStorage and SQLiteStorage adapters -> FAIL (MemoryStorage retained caller references on put_run/put_step/append_audit; SQLiteStorage consume_nonce purged expired nonces before insert; MemoryStorage close() was a no-op instead of raising ChowkiStorageError)
+- attempt 2: Deepcopy records in MemoryStorage; enforce close() state checks; single-use insert before purge in consume_nonce -> PENDING_VERIFICATION
+
 **Goal:** Persist runs, steps, snapshots, blobs, idempotency keys, nonces, and audit
 records behind one narrow protocol, with SQLite as the zero-config default
 (Assumption 2).
