@@ -397,16 +397,8 @@ class Redactor:
                         new_dict[new_k] = v
                     else:
                         new_dict[new_k] = self._redact_leaf(v, store, threshold, blob_min)
-                elif isinstance(v, _CONTAINER_TYPES):
-                    new_dict[new_k] = self._redact_any(v, store, threshold, blob_min)
-                elif isinstance(v, (bytearray, set)):
-                    new_dict[new_k] = (
-                        bytearray(v) if isinstance(v, bytearray) else set(cast("set[Any]", v))
-                    )
-                elif isinstance(v, memoryview):
-                    new_dict[new_k] = v.tobytes()
                 else:
-                    new_dict[new_k] = v
+                    new_dict[new_k] = self._redact_any(v, store, threshold, blob_min)
 
             return new_dict
 

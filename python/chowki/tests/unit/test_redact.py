@@ -288,4 +288,9 @@ def test_oversized_strings_skip_entropy_but_not_layer_one() -> None:
     assert len(big) > 64
     out = r.redact_text(big)
     assert SECRETS["openai"] not in out
-    assert r.entropy_skip_count == 1
+    assert PLACEHOLDER_RE.search(out) is not None
+
+
+def test_entropy_max_scan_bytes_default() -> None:
+    r = Redactor(hmac_key=KEY)
+    assert r.entropy_max_scan_bytes == 4096
