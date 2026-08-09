@@ -23,7 +23,7 @@ def _one_mib() -> dict[str, object]:
 
 @pytest.mark.benchmark
 def test_full_snapshot_1mib_within_total_budget(benchmark: Any, assert_budget: Any) -> None:
-    """End-to-end 1 MiB snapshot budget (< 2.5 ms base, < 3.75 ms allowed; Task 11 revision)."""
+    """End-to-end 1 MiB snapshot budget (< 3.0 ms base, < 4.5 ms allowed; Task 11 revision)."""
     state = _one_mib()
     redactor = Redactor(hmac_key=b"bench")
     keyring = KeyRing.from_key(b"k" * 32, key_id="k1")

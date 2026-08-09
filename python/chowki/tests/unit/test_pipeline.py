@@ -1,6 +1,8 @@
 # python/chowki/tests/unit/test_pipeline.py
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from chowki.errors import ChowkiStateError, DecryptionError, SnapshotIntegrityError
@@ -195,3 +197,16 @@ def test_load_tampered_payload_raises_integrity_error() -> None:
     tampered = msgspec.structs.replace(env, payload=b"\x81\xa1a\x02")
     with pytest.raises(SnapshotIntegrityError):
         pipe.load([tampered])
+
+
+def test_caller_mutating_bytearray_leaf_does_not_corrupt_pipeline() -> None:
+    pipe = make_pipeline()
+    ba = bytearray(b"safe_bytes_00000000")
+    state: dict[str, object] = {"data": ba}
+    pipe.snapshot(state, run_id="r", workflow="w", step_index=0)
+
+    # Mutate bytearray in place with secret
+    ba[0:20] = b"sk-A1b2C3d4E5f6G7h8I9j0"
+    restored = cast(dict[str, object], pipe.restore(run_id="r"))
+
+    assert b"sk-A1b2C3d4E5f6G7h8I9j0" not in bytes(cast(bytearray, restored["data"]))
