@@ -14,14 +14,30 @@ from chowki.state.canonical import (
     content_hash,
     hash_bytes,
 )
+from chowki.state.delta import (
+    COMPACT_RATIO,
+    MAX_DELTA_CHAIN,
+    DeltaChain,
+    Patch,
+    apply_patch,
+    make_patch,
+    should_compact,
+)
 
 __all__ = [
     "BLOB_REF_PREFIX",
+    "COMPACT_RATIO",
     "ESCAPE_PREFIX",
+    "MAX_DELTA_CHAIN",
     "BlobStore",
+    "DeltaChain",
+    "Patch",
+    "apply_patch",
     "canonicalize",
     "content_hash",
     "extract_blobs",
     "hash_bytes",
     "inline_blobs",
+    "make_patch",
+    "should_compact",
 ]
