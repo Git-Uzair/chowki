@@ -22,15 +22,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
+from msgspec.structs import replace as msgspec_replace
+
 from chowki.errors import (
     ChowkiStateError,
     DecryptionError,
-    SchemaVersionError,
-    SnapshotIntegrityError,
 )
 from chowki.state.blobs import BlobStore, inline_blobs
 from chowki.state.canonical import hash_bytes
-from chowki.state.codec import decode_state, encode_state, migrate
+from chowki.state.codec import encode_state, unseal
 from chowki.state.crypto import KeyRing, decrypt, encrypt
 from chowki.state.delta import DeltaChain, Patch, make_patch
 from chowki.state.redact import Redactor
@@ -178,12 +178,6 @@ class SnapshotPipeline:
         last_hash = envelopes[-1].state_hash
 
         for env in envelopes:
-            if env.v > SCHEMA_VERSION:
-                raise SchemaVersionError(
-                    f"snapshot schema v{env.v} is newer than this chowki build "
-                    f"(v{SCHEMA_VERSION}); upgrade chowki"
-                )
-
             if env.key_id is not None or env.nonce is not None:
                 if self._keyring is None:
                     raise DecryptionError("cannot decrypt snapshot envelope without a keyring")
@@ -193,19 +187,9 @@ class SnapshotPipeline:
                 payload = decrypt(
                     env.payload, self._keyring, key_id=env.key_id, nonce=env.nonce, aad=aad
                 )
-            else:
-                payload = env.payload
+                env = msgspec_replace(env, payload=payload)
 
-            computed_hash = hash_bytes(payload)
-            if computed_hash != env.state_hash:
-                raise SnapshotIntegrityError(
-                    f"state_hash mismatch: envelope has {env.state_hash}, "
-                    f"computed payload hash is {computed_hash}"
-                )
-
-            body = decode_state(payload)
-            if env.v < SCHEMA_VERSION and isinstance(body, dict):
-                body = migrate(body, from_version=env.v, to_version=SCHEMA_VERSION)
+            body = unseal(env)
 
             if env.kind is SnapshotKind.BASE:
                 chain = DeltaChain(base=body)

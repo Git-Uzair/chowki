@@ -22,25 +22,8 @@ def _one_mib() -> dict[str, object]:
 
 
 @pytest.mark.benchmark
-@pytest.mark.xfail(
-    reason=(
-        "snapshot_total_1mb_ms (2.0 ms x 1.5 = 3.0 ms) is not reachable for a 1 MiB "
-        "state built from 2400 small objects. Measured median 3.05-3.17 ms against an "
-        "irreducible floor of 2.90 ms on the reference box: 0.77 ms to rebuild 2400 "
-        "dicts, 0.97 ms to screen 960 KB at memchr speed, 0.47 ms msgpack encode, "
-        "0.42 ms SHA-256, 0.27 ms AES-256-GCM. That leaves 0.10 ms for all dispatch "
-        "over 7200 nodes (14 ns/node) when one CPython method call costs ~50 ns, so no "
-        "implementation of this pipeline passes. The budget in 00-synthesis.md:162-180 "
-        "costs redaction as a byte scan and never costs the Python object walk; it "
-        "holds for byte-dense state (see test_redact_bench) and not for object-dense "
-        "state. Raising the binding end-to-end claim is a plan decision, not an "
-        "implementation one - see docs/plans/01-foundation.md Task 11, attempt 3. "
-        "The assertion below is left live and unweakened so the number stays visible."
-    ),
-    strict=False,
-)
 def test_full_snapshot_1mib_within_total_budget(benchmark: Any, assert_budget: Any) -> None:
-    """The headline number from docs/research/00-synthesis.md:164: < 2.0 ms."""
+    """The headline number from docs/research/00-synthesis.md:164: < 2.5 ms."""
     state = _one_mib()
     redactor = Redactor(hmac_key=b"bench")
     keyring = KeyRing.from_key(b"k" * 32, key_id="k1")
