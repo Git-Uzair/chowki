@@ -3,6 +3,9 @@ from __future__ import annotations
 import copy
 import threading
 from datetime import UTC, datetime
+from typing import cast
+
+import msgspec
 
 from chowki.errors import ChowkiStorageError
 from chowki.state.blobs import make_blob_ref
@@ -121,9 +124,13 @@ class MemoryStorage:
             return self._blobs.get(ref)
 
     def append_audit(self, record: dict[str, object]) -> None:
+        # Msgpack roundtrip normalizes types (e.g. tuple -> list) and rejects
+        # non-encodable objects, ensuring identical behavior to SQLiteStorage.
+        data = msgspec.msgpack.encode(record)
+        decoded = cast("dict[str, object]", msgspec.msgpack.decode(data))
         with self._lock:
             self._check_closed()
-            self._audit.append(copy.deepcopy(record))
+            self._audit.append(decoded)
 
     def list_audit(self, *, run_id: str | None = None) -> list[dict[str, object]]:
         with self._lock:
