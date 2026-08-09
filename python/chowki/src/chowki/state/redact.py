@@ -174,6 +174,10 @@ class Redactor:
             self._combined_re = _DEFAULT_COMBINED_RE
 
     @property
+    def hmac_key(self) -> bytes:
+        return self._hmac_key
+
+    @property
     def entropy_threshold(self) -> float:
         return self._entropy_threshold
 

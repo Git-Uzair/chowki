@@ -3163,6 +3163,12 @@ def test_concurrent_idempotency_claims_have_exactly_one_winner(tmp_path: Path) -
 
 ## Task 13 — `ChowkiConfig`, the engine, and the run context
 
+**Status:** COMPLETED (VERDICT: PASS)
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: Initial implementation -> FAIL (configure closed engine before config validation; pipeline_for enabled encryption when encrypt_at_rest=False; ChowkiConfig used Any instead of TYPE_CHECKING forward annotations; explicit ChowkiConfigError message on missing master key)
+- attempt 2: Fixed configure swap order, pipeline_for keyring gate, TYPE_CHECKING annotations for guardrails/gateway, and explicit ChowkiConfigError when CHOWKI_MASTER_KEY missing -> PASS
+
 **Goal:** One place that assembles redactor + blobs + keyring + pipeline + storage +
 guardrails + gateway, and a `contextvars`-based run context so decorators need no
 explicit plumbing.
@@ -3413,6 +3419,8 @@ then flip the default. Do not stub the classes twice.
 ---
 
 ## Task 14 — `@chowki.step`
+
+**Status:** COMPLETED (VERDICT: PASS)
 
 **Goal:** The interceptor that records step inputs/outputs, memoises completed steps
 (zero-waste resume), enforces idempotency for side effects, and snapshots state — for

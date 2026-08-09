@@ -35,6 +35,7 @@ class RunContext:
     step_records: dict[str, StepRecord] = field(default_factory=_default_step_records)
     pause: PauseRequest | None = None
     _counters: dict[str, int] = field(default_factory=_default_counters)
+    _ordinal: int = 0
 
     def next_step_id(self, name: str) -> str:
         """In-memory ordinal counter for step identity.
@@ -47,6 +48,12 @@ class RunContext:
         n = self._counters.get(name, 0)
         self._counters[name] = n + 1
         return f"{name}#{n}"
+
+    def next_ordinal(self) -> int:
+        """Monotonic per-run ordinal counter across all steps."""
+        n = self._ordinal
+        self._ordinal += 1
+        return n
 
 
 _CURRENT: ContextVar[RunContext | None] = ContextVar("chowki_run", default=None)
