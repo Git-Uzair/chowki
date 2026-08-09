@@ -82,7 +82,7 @@ class SQLiteStorage:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            raise ChowkiStorageError("SQLite database is closed")
+            raise ChowkiStorageError("storage adapter is closed")
         return self._conn
 
     def put_run(self, record: RunRecord) -> None:
@@ -227,7 +227,6 @@ class SQLiteStorage:
         conn = self._get_conn()
         now = datetime.now(UTC).timestamp()
         with self._lock:
-            conn.execute("DELETE FROM nonces WHERE expires_at < ?", (now,))
             cur = conn.execute(
                 """
                 INSERT INTO nonces (nonce, expires_at)
@@ -236,7 +235,13 @@ class SQLiteStorage:
                 """,
                 (nonce, float(expires_at_epoch)),
             )
-            return cur.rowcount == 1
+            if cur.rowcount == 0:
+                return False
+            conn.execute(
+                "DELETE FROM nonces WHERE expires_at < ? AND nonce != ?",
+                (now, nonce),
+            )
+            return True
 
     def put_blob(self, data: bytes) -> str:
         conn = self._get_conn()
