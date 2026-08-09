@@ -89,10 +89,10 @@ class SQLiteStorage:
         return self._conn
 
     def put_run(self, record: RunRecord) -> None:
-        conn = self._get_conn()
         blob = encode_struct(record)
         status_str = str(record.status)
         with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 """
                 INSERT INTO runs (run_id, tenant_id, workflow, status, blob)
@@ -107,8 +107,8 @@ class SQLiteStorage:
             )
 
     def get_run(self, run_id: str) -> RunRecord | None:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute("SELECT blob FROM runs WHERE run_id = ?", (run_id,))
             row = cur.fetchone()
             if row is None:
@@ -116,8 +116,8 @@ class SQLiteStorage:
             return decode_struct(row[0], RunRecord)
 
     def list_runs(self, *, status: RunStatus | None = None) -> list[RunRecord]:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             if status is None:
                 cur = conn.execute("SELECT blob FROM runs")
             else:
@@ -126,10 +126,10 @@ class SQLiteStorage:
             return [decode_struct(row[0], RunRecord) for row in cur.fetchall()]
 
     def put_step(self, record: StepRecord) -> None:
-        conn = self._get_conn()
         blob = encode_struct(record)
         status_str = str(record.status)
         with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 """
                 INSERT INTO steps (run_id, step_id, ordinal, status, blob)
@@ -143,8 +143,8 @@ class SQLiteStorage:
             )
 
     def get_step(self, run_id: str, step_id: str) -> StepRecord | None:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute(
                 "SELECT blob FROM steps WHERE run_id = ? AND step_id = ?",
                 (run_id, step_id),
@@ -155,8 +155,8 @@ class SQLiteStorage:
             return decode_struct(row[0], StepRecord)
 
     def list_steps(self, run_id: str) -> list[StepRecord]:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute(
                 "SELECT blob FROM steps WHERE run_id = ? ORDER BY ordinal ASC",
                 (run_id,),
@@ -164,10 +164,10 @@ class SQLiteStorage:
             return [decode_struct(row[0], StepRecord) for row in cur.fetchall()]
 
     def put_snapshot(self, env: SnapshotEnvelope) -> None:
-        conn = self._get_conn()
         blob = encode_struct(env)
         kind_str = str(env.kind)
         with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 """
                 INSERT INTO snapshots (run_id, step_index, kind, blob)
@@ -180,8 +180,8 @@ class SQLiteStorage:
             )
 
     def list_snapshots(self, run_id: str) -> list[SnapshotEnvelope]:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute(
                 "SELECT blob FROM snapshots WHERE run_id = ? ORDER BY step_index ASC",
                 (run_id,),
@@ -189,8 +189,8 @@ class SQLiteStorage:
             return [decode_struct(row[0], SnapshotEnvelope) for row in cur.fetchall()]
 
     def snapshots_for_resume(self, run_id: str) -> list[SnapshotEnvelope]:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute(
                 """
                 SELECT blob FROM snapshots
@@ -206,9 +206,9 @@ class SQLiteStorage:
             return [decode_struct(row[0], SnapshotEnvelope) for row in cur.fetchall()]
 
     def claim_idempotency_key(self, key: str, *, args_hash: str) -> bool:
-        conn = self._get_conn()
         created_at = datetime.now(UTC).isoformat()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute(
                 """
                 INSERT INTO idempotency (key, args_hash, status, created_at)
@@ -232,8 +232,8 @@ class SQLiteStorage:
         Rows are never garbage-collected on expiry: deleting an expired row would make an
         already-consumed nonce replayable, which defeats the point of the table.
         """
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute(
                 """
                 INSERT INTO nonces (nonce, expires_at)
@@ -245,9 +245,9 @@ class SQLiteStorage:
             return cur.rowcount == 1
 
     def put_blob(self, data: bytes) -> str:
-        conn = self._get_conn()
         ref = make_blob_ref(data)
         with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 "INSERT INTO blobs (ref, data) VALUES (?, ?) ON CONFLICT(ref) DO NOTHING",
                 (ref, data),
@@ -255,8 +255,8 @@ class SQLiteStorage:
         return ref
 
     def get_blob(self, ref: str) -> bytes | None:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             cur = conn.execute("SELECT data FROM blobs WHERE ref = ?", (ref,))
             row = cur.fetchone()
             if row is None:
@@ -264,18 +264,19 @@ class SQLiteStorage:
             return cast(bytes, row[0])
 
     def append_audit(self, record: dict[str, object]) -> None:
-        conn = self._get_conn()
-        run_id = cast(str | None, record.get("run_id"))
+        run_id_val = record.get("run_id")
+        run_id_col = run_id_val if isinstance(run_id_val, str) else None
         blob = msgspec.msgpack.encode(record)
         with self._lock:
+            conn = self._get_conn()
             conn.execute(
                 "INSERT INTO audit (run_id, blob) VALUES (?, ?)",
-                (run_id, blob),
+                (run_id_col, blob),
             )
 
     def list_audit(self, *, run_id: str | None = None) -> list[dict[str, object]]:
-        conn = self._get_conn()
         with self._lock:
+            conn = self._get_conn()
             if run_id is None:
                 cur = conn.execute("SELECT blob FROM audit ORDER BY seq ASC")
             else:

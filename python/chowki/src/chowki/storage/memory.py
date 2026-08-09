@@ -137,7 +137,11 @@ class MemoryStorage:
             self._check_closed()
             if run_id is None:
                 return [copy.deepcopy(r) for r in self._audit]
-            return [copy.deepcopy(r) for r in self._audit if r.get("run_id") == run_id]
+            return [
+                copy.deepcopy(r)
+                for r in self._audit
+                if isinstance(r.get("run_id"), str) and r.get("run_id") == run_id
+            ]
 
     def close(self) -> None:
         with self._lock:
