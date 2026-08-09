@@ -148,7 +148,7 @@ class Redactor:
         entropy_threshold: float = 4.5,
         min_token_len: int = 12,
         enable_entropy: bool = True,
-        entropy_max_scan_bytes: int = 16_384,
+        entropy_max_scan_bytes: int = 4096,
         extra_patterns: Sequence[tuple[str, str]] = (),
     ) -> None:
         self._hmac_key = hmac_key
@@ -399,6 +399,12 @@ class Redactor:
                         new_dict[new_k] = self._redact_leaf(v, store, threshold, blob_min)
                 elif isinstance(v, _CONTAINER_TYPES):
                     new_dict[new_k] = self._redact_any(v, store, threshold, blob_min)
+                elif isinstance(v, (bytearray, set)):
+                    new_dict[new_k] = (
+                        bytearray(v) if isinstance(v, bytearray) else set(cast("set[Any]", v))
+                    )
+                elif isinstance(v, memoryview):
+                    new_dict[new_k] = v.tobytes()
                 else:
                     new_dict[new_k] = v
 
@@ -424,5 +430,13 @@ class Redactor:
                 else self._redact_any(item, store, threshold, blob_min)
                 for item in entries
             )
+
+        if isinstance(value, bytearray):
+            return bytearray(value)
+        if isinstance(value, set):
+            s_set = cast("set[Any]", value)
+            return set(s_set)
+        if isinstance(value, memoryview):
+            return value.tobytes()
 
         return value
