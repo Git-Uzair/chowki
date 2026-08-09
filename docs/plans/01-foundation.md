@@ -2534,12 +2534,12 @@ def test_encrypt_1mib_within_budget(benchmark, assert_budget) -> None:
 
 ## Task 11 — The snapshot pipeline (the hot path) and the total 3.5 ms budget gate
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETED (VERDICT: PASS)
 **Failed Verify Cycles:** 2
 **Attempt Ledger:**
 - attempt 1: Assemble pipeline with inline AAD f-string and blob-extracted benchmark state -> FAIL (re-derived AAD f-string instead of SnapshotEnvelope helper; benchmark state extracted to blobs instead of inline 1 MiB)
 - attempt 2: Use SnapshotEnvelope.format_aad and realistic 1 MiB inline benchmark state -> FAIL (`_one_mib` emitted 20,971-char strings that were extracted to blobs; identity-preserving `changed` flags in `redact`/`extract_blobs` let caller mutation corrupt the delta baseline; `isalpha()` short-circuit skipped `extra_patterns`)
-- attempt 3 (escalation): fuse redaction and blob extraction into one owning walk; replace the `isalpha()` short-circuit with a memchr screen; rebuild every container; simplify load() to use unseal(env); update snapshot_total_1mb_ms budget to 3.5 ms base (5.25 ms allowed) -> PENDING_VERIFICATION
+- attempt 3 (escalation): fuse redaction and blob extraction into one owning walk; replace the `isalpha()` short-circuit with a memchr screen; rebuild every container; simplify load() to use unseal(env); update snapshot_total_1mb_ms budget to 3.5 ms base (5.25 ms allowed) -> PASS
 
 **Executor notes (attempt 3).**
 
