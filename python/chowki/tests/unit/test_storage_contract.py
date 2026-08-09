@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from chowki.errors import ChowkiStorageError
+from chowki.storage.base import StorageAdapter
+from chowki.storage.memory import MemoryStorage
+from chowki.storage.sqlite import SQLiteStorage
+from chowki.types import RunRecord, RunStatus, SnapshotKind, StepRecord, StepStatus
+
+
+@pytest.fixture(params=["memory", "sqlite"])
+def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[StorageAdapter]:
+    adapter: StorageAdapter = (
+        MemoryStorage() if request.param == "memory" else SQLiteStorage(tmp_path / "chowki.db")
+    )
+    yield adapter
+    adapter.close()
+
+
+def _run(run_id: str = "r1") -> RunRecord:
+    return RunRecord(
+        run_id=run_id,
+        workflow="demo",
+        tenant_id="t1",
+        created_at_utc="2026-08-08T06:00:00Z",
+        updated_at_utc="2026-08-08T06:00:00Z",
+    )
+
+
+def test_run_put_get_roundtrip(store: StorageAdapter) -> None:
+    store.put_run(_run())
+    got = store.get_run("r1")
+    assert got is not None
+    assert got.workflow == "demo"
+    assert got.status is RunStatus.PENDING
+
+
+def test_get_missing_run_returns_none(store: StorageAdapter) -> None:
+    assert store.get_run("nope") is None
+
+
+def test_run_update_is_last_write_wins(store: StorageAdapter) -> None:
+    store.put_run(_run())
+    updated = _run()
+    updated.status = RunStatus.PAUSED
+    store.put_run(updated)
+    got = store.get_run("r1")
+    assert got is not None and got.status is RunStatus.PAUSED
+
+
+def test_list_runs_filters_by_status(store: StorageAdapter) -> None:
+    a, b = _run("a"), _run("b")
+    b.status = RunStatus.PAUSED
+    store.put_run(a)
+    store.put_run(b)
+    assert [r.run_id for r in store.list_runs(status=RunStatus.PAUSED)] == ["b"]
+
+
+def test_steps_are_ordered_by_ordinal(store: StorageAdapter) -> None:
+    store.put_run(_run())
+    for i in (2, 0, 1):
+        store.put_step(
+            StepRecord(
+                run_id="r1",
+                step_id=f"s#{i}",
+                name="s",
+                ordinal=i,
+                idempotency_key=f"k{i}",
+                args_hash="sha256:" + "0" * 64,
+                started_at_utc="2026-08-08T06:00:00Z",
+                status=StepStatus.COMPLETED,
+            )
+        )
+    assert [s.ordinal for s in store.list_steps("r1")] == [0, 1, 2]
+
+
+def test_get_step_by_id(store: StorageAdapter) -> None:
+    store.put_run(_run())
+    store.put_step(
+        StepRecord(
+            run_id="r1",
+            step_id="s#0",
+            name="s",
+            ordinal=0,
+            idempotency_key="k",
+            args_hash="sha256:" + "0" * 64,
+            started_at_utc="2026-08-08T06:00:00Z",
+        )
+    )
+    assert store.get_step("r1", "s#0") is not None
+    assert store.get_step("r1", "missing") is None
+
+
+def test_snapshots_round_trip_and_preserve_order(store: StorageAdapter) -> None:
+    from chowki.state.codec import seal
+
+    store.put_run(_run())
+    for i in range(3):
+        store.put_snapshot(
+            seal(
+                {"n": i},
+                run_id="r1",
+                workflow="demo",
+                tenant_id="t1",
+                step_index=i,
+                kind=SnapshotKind.BASE if i == 0 else SnapshotKind.DELTA,
+            )
+        )
+    envs = store.list_snapshots("r1")
+    assert [e.step_index for e in envs] == [0, 1, 2]
+
+
+def test_snapshots_since_last_base(store: StorageAdapter) -> None:
+    """Warm resume only needs the newest base plus the deltas after it."""
+    from chowki.state.codec import seal
+
+    store.put_run(_run())
+    kinds = [SnapshotKind.BASE, SnapshotKind.DELTA, SnapshotKind.BASE, SnapshotKind.DELTA]
+    for i, kind in enumerate(kinds):
+        store.put_snapshot(
+            seal({"n": i}, run_id="r1", workflow="demo", tenant_id="t1", step_index=i, kind=kind)
+        )
+    envs = store.snapshots_for_resume("r1")
+    assert [e.step_index for e in envs] == [2, 3]
+
+
+def test_idempotency_claim_is_atomic_and_single_winner(store: StorageAdapter) -> None:
+    assert store.claim_idempotency_key("key-1", args_hash="h1") is True
+    assert store.claim_idempotency_key("key-1", args_hash="h1") is False
+
+
+def test_idempotency_key_reuse_with_a_different_payload_is_rejected(
+    store: StorageAdapter,
+) -> None:
+    store.claim_idempotency_key("key-2", args_hash="h1")
+    with pytest.raises(ChowkiStorageError, match="payload"):
+        store.claim_idempotency_key("key-2", args_hash="DIFFERENT")
+
+
+def test_nonce_is_single_use(store: StorageAdapter) -> None:
+    assert store.consume_nonce("n1", expires_at_epoch=4_102_444_800) is True
+    assert store.consume_nonce("n1", expires_at_epoch=4_102_444_800) is False
+
+
+def test_blob_put_get(store: StorageAdapter) -> None:
+    ref = store.put_blob(b"a large prompt")
+    assert store.get_blob(ref) == b"a large prompt"
+    assert store.get_blob("ref:sha256:" + "0" * 64) is None
+
+
+def test_audit_log_is_append_only(store: StorageAdapter) -> None:
+    store.append_audit({"audit_id": "a1", "action": "APPROVE"})
+    store.append_audit({"audit_id": "a2", "action": "REJECT"})
+    records = store.list_audit()
+    assert [r["audit_id"] for r in records] == ["a1", "a2"]
+    assert not hasattr(store, "delete_audit")
