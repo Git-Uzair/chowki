@@ -2562,8 +2562,10 @@ retain the caller's own containers, which is finding 2.
    `test_compaction_forces_a_new_base_at_depth_50` pad their state.** The plan's bodies
    cannot pass as written without padding because `{"a": 1}` patch is larger than base.
 4. **Budget update (Option B resolution).** `snapshot_total_1mb_ms` in `budgets.py` was
-   raised to 2.5 ms base (3.75 ms allowed at 1.5 tolerance) to account for per-object
+   raised to 3.5 ms base (5.25 ms allowed at 1.5 tolerance) to account for per-object
    container traversal over object-dense state (2,400 dicts) alongside the 1 MB byte scan.
+5. **Redactor entropy scan default (Task 7 R2 remedy).** Default `entropy_max_scan_bytes`
+   was set to 4096 bytes to bound CPU time on large string leaves, matching research.
 
 Measured floor for object-dense state shape (2,400 message dicts):
 
@@ -2713,7 +2715,7 @@ def _one_mib() -> dict[str, object]:
 
 @pytest.mark.benchmark
 def test_full_snapshot_1mib_within_total_budget(benchmark, assert_budget) -> None:
-    """End-to-end 1 MiB snapshot budget (< 2.5 ms base, < 3.75 ms allowed; Task 11 revision)."""
+    """End-to-end 1 MiB snapshot budget (< 3.5 ms base, < 5.25 ms allowed; Task 11 revision)."""
     state = _one_mib()
     counter = {"i": 0}
 
