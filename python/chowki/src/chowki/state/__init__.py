@@ -23,6 +23,7 @@ from chowki.state.delta import (
     make_patch,
     should_compact,
 )
+from chowki.state.pipeline import SnapshotPipeline
 
 __all__ = [
     "BLOB_REF_PREFIX",
@@ -32,6 +33,7 @@ __all__ = [
     "BlobStore",
     "DeltaChain",
     "Patch",
+    "SnapshotPipeline",
     "apply_patch",
     "canonicalize",
     "content_hash",
