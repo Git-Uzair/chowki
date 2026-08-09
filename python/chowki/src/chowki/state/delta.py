@@ -21,12 +21,20 @@ from dataclasses import dataclass, field
 from typing import Any, Final, cast
 
 import jsonpatch  # type: ignore[import-untyped]
+import jsonpointer  # type: ignore[import-untyped]
 
 from chowki.errors import ChowkiStateError
 from chowki.state.codec import encode_state
 from chowki.types import JSONValue
 
 _jsonpatch: Any = jsonpatch
+
+#: jsonpointer.JsonPointerException is a sibling of JsonPatchException, not a subclass;
+#: an unresolvable path (e.g. "/x/y" on {"a": 1}) surfaces it through the jsonpatch API.
+_PATCH_ERRORS: Final[tuple[type[Exception], ...]] = (
+    jsonpatch.JsonPatchException,
+    jsonpointer.JsonPointerException,
+)
 
 Patch = list[dict[str, Any]]
 
@@ -49,10 +57,7 @@ def apply_patch(base: JSONValue, patch: Patch, *, in_place: bool = False) -> JSO
     try:
         res: Any = _jsonpatch.apply_patch(base, patch, in_place=in_place)
         return cast(JSONValue, res)
-    except (jsonpatch.JsonPatchTestFailed, jsonpatch.JsonPatchConflict) as e:
-        failing_op = _find_failing_op(base, patch)
-        raise ChowkiStateError(f"Failed to apply patch operation {failing_op}: {e}") from e
-    except jsonpatch.JsonPatchException as e:
+    except _PATCH_ERRORS as e:
         failing_op = _find_failing_op(base, patch)
         raise ChowkiStateError(f"Failed to apply patch operation {failing_op}: {e}") from e
 
@@ -62,7 +67,7 @@ def _find_failing_op(base: JSONValue, patch: Patch) -> dict[str, Any] | None:
     for op in patch:
         try:
             curr = _jsonpatch.apply_patch(curr, [op], in_place=True)
-        except jsonpatch.JsonPatchException:
+        except _PATCH_ERRORS:
             return op
     return None
 

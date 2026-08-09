@@ -62,6 +62,15 @@ def test_test_op_guards_optimistic_concurrency() -> None:
         apply_patch({"status": "CHANGED"}, guarded)
 
 
+@pytest.mark.parametrize("op", ["replace", "add"])
+def test_missing_parent_path_raises_chowki_state_error(op: str) -> None:
+    from chowki.errors import ChowkiStateError
+
+    patch = [{"op": op, "path": "/x/y", "value": 1}]
+    with pytest.raises(ChowkiStateError, match="/x/y"):
+        apply_patch({"a": 1}, patch)
+
+
 def test_chain_reconstructs_state() -> None:
     chain = DeltaChain(base={"n": 0})
     expected = {"n": 0}
