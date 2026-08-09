@@ -85,10 +85,14 @@ class SnapshotEnvelope(msgspec.Struct, kw_only=True, frozen=True):
     nonce: bytes | None = None
     codec: str = "msgpack"
 
+    @staticmethod
+    def format_aad(tenant_id: str, run_id: str, v: int = SCHEMA_VERSION) -> bytes:
+        return f"{tenant_id}:{run_id}:v{v}".encode()
+
     def aad(self) -> bytes:
         """Associated authenticated data binding tenant, run, and schema version
         (ADR-003 / docs/research/02-serialization.md:236-256)."""
-        return f"{self.tenant_id}:{self.run_id}:v{self.v}".encode()
+        return SnapshotEnvelope.format_aad(self.tenant_id, self.run_id, self.v)
 
 
 class StepError(msgspec.Struct, kw_only=True, frozen=True):

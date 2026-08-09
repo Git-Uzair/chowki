@@ -251,7 +251,11 @@ class Redactor:
                         max_bytes=self.entropy_max_scan_bytes,
                         note="further skips counted in entropy_skip_count, not logged",
                     )
-            elif _HAS_DIGIT.search(res) is not None and self._candidate_re.search(res) is not None:
+            elif (
+                not res.isalpha()
+                and _HAS_DIGIT.search(res) is not None
+                and self._candidate_re.search(res) is not None
+            ):
                 res = self._candidate_re.sub(self._sub_layer2, res)
 
         if placeholders and nonce is not None:
@@ -275,44 +279,77 @@ class Redactor:
     def _redact_any(self, value: Any) -> Any:
         if isinstance(value, dict):
             source = cast("dict[Any, Any]", value)
+            changed = False
             new_dict: dict[Any, Any] = {}
             for k, v in source.items():
-                if isinstance(k, str) and PLACEHOLDER_RE.fullmatch(k):
-                    new_k: Any = k
-                elif isinstance(k, str) and k in _SAFE_KEYS:
-                    new_k = k
-                elif isinstance(k, str):
-                    new_k = self.redact_text(k) if len(k) >= 8 else k
-                    if len(k) >= 3 and _SENSITIVE_KEY.search(k):
-                        if PLACEHOLDER_RE.fullmatch(str(v)):
-                            new_dict[new_k] = v
+                if isinstance(k, str):
+                    if k in _SAFE_KEYS:
+                        new_k: Any = k
+                    elif k.startswith("[") and PLACEHOLDER_RE.fullmatch(k):
+                        new_k = k
+                    else:
+                        new_k = self.redact_text(k) if len(k) >= 8 else k
+                        if len(k) >= 3 and _SENSITIVE_KEY.search(k):
+                            s_v = str(v)
+                            if s_v.startswith("[") and PLACEHOLDER_RE.fullmatch(s_v):
+                                new_v = v
+                            else:
+                                new_v = self.placeholder("key_name", s_v)
+                            new_dict[new_k] = new_v
+                            changed = True
                             continue
-                        new_dict[new_k] = self.placeholder("key_name", str(v))
-                        continue
                 else:
                     new_k = self._redact_any(k)
 
                 if isinstance(v, str):
-                    new_dict[new_k] = (
-                        v if (len(v) < 8 or v in _SAFE_VALUES) else self.redact_text(v)
-                    )
+                    if (
+                        len(v) < 8
+                        or v in _SAFE_VALUES
+                        or (v.isalpha() and not ("AKIA" in v or "ASIA" in v))
+                    ):
+                        new_v = v
+                    else:
+                        new_v = self.redact_text(v)
                 elif isinstance(v, _CONTAINER_TYPES):
-                    new_dict[new_k] = self._redact_any(v)
+                    new_v = self._redact_any(v)
                 else:
-                    new_dict[new_k] = v
-            return new_dict
+                    new_v = v
+
+                if not changed and (new_k is not k or new_v is not v):
+                    changed = True
+                new_dict[new_k] = new_v
+
+            return new_dict if changed else source
 
         if isinstance(value, list):
             items = cast("list[Any]", value)
-            return [self._redact_any(item) for item in items]
+            changed = False
+            new_list: list[Any] = []
+            for item in items:
+                new_item = self._redact_any(item)
+                if not changed and new_item is not item:
+                    changed = True
+                new_list.append(new_item)
+            return new_list if changed else items
 
         if isinstance(value, str):
-            if len(value) < 8:
+            if (
+                len(value) < 8
+                or value in _SAFE_VALUES
+                or (value.isalpha() and not ("AKIA" in value or "ASIA" in value))
+            ):
                 return value
             return self.redact_text(value)
 
         if isinstance(value, tuple):
             entries = cast("tuple[Any, ...]", value)
-            return tuple(self._redact_any(item) for item in entries)
+            changed = False
+            new_tuple: list[Any] = []
+            for item in entries:
+                new_item = self._redact_any(item)
+                if not changed and new_item is not item:
+                    changed = True
+                new_tuple.append(new_item)
+            return tuple(new_tuple) if changed else entries
 
         return value

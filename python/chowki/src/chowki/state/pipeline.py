@@ -96,6 +96,7 @@ class SnapshotPipeline:
 
         # 4. Encode
         payload = encode_state(body)
+        unencrypted_len = len(payload)
 
         # 5. Hash over unencrypted payload
         state_hash = hash_bytes(payload)
@@ -104,7 +105,7 @@ class SnapshotPipeline:
         key_id: str | None = None
         nonce: bytes | None = None
         if self._keyring is not None:
-            aad = f"{self._tenant_id}:{run_id}:v{SCHEMA_VERSION}".encode()
+            aad = SnapshotEnvelope.format_aad(self._tenant_id, run_id, SCHEMA_VERSION)
             payload, key_id, nonce = encrypt(payload, self._keyring, aad=aad)
 
         # 7. Assemble frozen SnapshotEnvelope and update _RunState
@@ -126,8 +127,7 @@ class SnapshotPipeline:
         )
 
         if kind is SnapshotKind.BASE:
-            base_payload = encode_state(stripped)
-            base_bytes = len(base_payload)
+            base_bytes = unencrypted_len
             chain = DeltaChain(base=stripped)
             self._runs[run_id] = _RunState(
                 base=stripped,
