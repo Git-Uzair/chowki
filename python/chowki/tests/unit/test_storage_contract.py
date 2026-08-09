@@ -215,3 +215,13 @@ def test_audit_record_normalizes_tuples_and_rejects_unencodable_objects(
 
     with pytest.raises((TypeError, Exception)):
         store.append_audit({"obj": object()})
+
+
+def test_audit_list_filter_ignores_non_string_run_id(
+    store: StorageAdapter,
+) -> None:
+    store.append_audit({"run_id": "42"})
+    store.append_audit({"run_id": 42})
+    matched = store.list_audit(run_id="42")
+    assert len(matched) == 1
+    assert matched[0]["run_id"] == "42"
