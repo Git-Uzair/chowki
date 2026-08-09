@@ -204,3 +204,14 @@ def test_calling_method_after_close_raises_storage_error(
         store.consume_nonce("n1", expires_at_epoch=4_102_444_800)
     with pytest.raises(ChowkiStorageError):
         store.put_blob(b"data")
+
+
+def test_audit_record_normalizes_tuples_and_rejects_unencodable_objects(
+    store: StorageAdapter,
+) -> None:
+    store.append_audit({"run_id": "r1", "tags": ("a", "b")})
+    records = store.list_audit()
+    assert records[0]["tags"] == ["a", "b"]
+
+    with pytest.raises((TypeError, Exception)):
+        store.append_audit({"obj": object()})
