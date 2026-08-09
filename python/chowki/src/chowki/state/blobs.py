@@ -11,6 +11,15 @@ BLOB_REF_PREFIX: Final[str] = "ref:sha256:"
 ESCAPE_PREFIX: Final[str] = "ref-lit:"
 
 
+def make_blob_ref(data: bytes) -> str:
+    """Derive the content-addressed reference for bytes.
+
+    The single definition of blob addressing, shared by :class:`BlobStore` and the
+    storage adapters so every backend agrees on the reference for the same bytes.
+    """
+    return BLOB_REF_PREFIX + hashlib.sha256(data).hexdigest()
+
+
 class BlobStore:
     """In-memory key-value blob store mapping content references to bytes."""
 
@@ -19,7 +28,7 @@ class BlobStore:
 
     def put(self, data: bytes) -> str:
         """Store bytes and return content-addressed reference string."""
-        ref = BLOB_REF_PREFIX + hashlib.sha256(data).hexdigest()
+        ref = make_blob_ref(data)
         self._store[ref] = data
         return ref
 

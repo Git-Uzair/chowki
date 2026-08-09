@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import threading
 from datetime import UTC, datetime
 
 from chowki.errors import ChowkiStorageError
-from chowki.state.blobs import BLOB_REF_PREFIX
+from chowki.state.blobs import make_blob_ref
 from chowki.types import RunRecord, RunStatus, SnapshotEnvelope, SnapshotKind, StepRecord
 
 
@@ -98,6 +97,10 @@ class MemoryStorage:
             return True
 
     def consume_nonce(self, nonce: str, *, expires_at_epoch: float | int) -> bool:
+        """Claim a nonce, which stays claimed for the lifetime of the store.
+
+        Entries are never dropped on expiry, matching :class:`~chowki.storage.sqlite.SQLiteStorage`.
+        """
         with self._lock:
             self._check_closed()
             if nonce in self._nonces:
@@ -106,7 +109,7 @@ class MemoryStorage:
             return True
 
     def put_blob(self, data: bytes) -> str:
-        ref = BLOB_REF_PREFIX + hashlib.sha256(data).hexdigest()
+        ref = make_blob_ref(data)
         with self._lock:
             self._check_closed()
             self._blobs[ref] = bytes(data)

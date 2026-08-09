@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-import hashlib
 import sqlite3
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Final, cast
 
 import msgspec
 
 from chowki.errors import ChowkiStorageError
-from chowki.state.blobs import BLOB_REF_PREFIX
+from chowki.state.blobs import make_blob_ref
 from chowki.state.codec import decode_struct, encode_struct
 from chowki.types import RunRecord, RunStatus, SnapshotEnvelope, StepRecord
+
+#: Only lifecycle value a Phase 1 claim can have; the column exists for later phases.
+IDEMPOTENCY_CLAIMED: Final[str] = "claimed"
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -48,6 +50,7 @@ CREATE TABLE IF NOT EXISTS blobs (
 CREATE TABLE IF NOT EXISTS idempotency (
     key TEXT PRIMARY KEY,
     args_hash TEXT,
+    status TEXT,
     created_at TEXT
 );
 
@@ -208,11 +211,11 @@ class SQLiteStorage:
         with self._lock:
             cur = conn.execute(
                 """
-                INSERT INTO idempotency (key, args_hash, created_at)
-                VALUES (?, ?, ?)
+                INSERT INTO idempotency (key, args_hash, status, created_at)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(key) DO NOTHING
                 """,
-                (key, args_hash, created_at),
+                (key, args_hash, IDEMPOTENCY_CLAIMED, created_at),
             )
             if cur.rowcount == 1:
                 return True
@@ -224,8 +227,12 @@ class SQLiteStorage:
             return False
 
     def consume_nonce(self, nonce: str, *, expires_at_epoch: float | int) -> bool:
+        """Claim a nonce, which stays claimed for the lifetime of the store.
+
+        Rows are never garbage-collected on expiry: deleting an expired row would make an
+        already-consumed nonce replayable, which defeats the point of the table.
+        """
         conn = self._get_conn()
-        now = datetime.now(UTC).timestamp()
         with self._lock:
             cur = conn.execute(
                 """
@@ -235,17 +242,11 @@ class SQLiteStorage:
                 """,
                 (nonce, float(expires_at_epoch)),
             )
-            if cur.rowcount == 0:
-                return False
-            conn.execute(
-                "DELETE FROM nonces WHERE expires_at < ? AND nonce != ?",
-                (now, nonce),
-            )
-            return True
+            return cur.rowcount == 1
 
     def put_blob(self, data: bytes) -> str:
         conn = self._get_conn()
-        ref = BLOB_REF_PREFIX + hashlib.sha256(data).hexdigest()
+        ref = make_blob_ref(data)
         with self._lock:
             conn.execute(
                 "INSERT INTO blobs (ref, data) VALUES (?, ?) ON CONFLICT(ref) DO NOTHING",
