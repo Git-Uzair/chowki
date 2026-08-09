@@ -4,11 +4,14 @@ Assembles redaction, blob extraction, base/delta selection, MessagePack encoding
 SHA-256 hashing, optional AES-256-GCM encryption, and dispatch.
 
 Invariants and non-negotiables:
-1. Raw state is never retained by the pipeline. `_RunState.redacted_current` holds the
-   redacted tree only.
-2. `restore()` returns redacted state. A caller who needs the original secret must
+1. Raw state is never retained by the pipeline. `_RunState.stripped_current` holds the
+   redacted, blob-stripped tree only.
+2. Nothing the pipeline retains is reachable from the caller. The redaction walk rebuilds
+   every container, so a caller that keeps mutating the dict it handed to `snapshot()`
+   can neither corrupt the next delta nor push a secret into a stored snapshot.
+3. `restore()` returns redacted state. A caller who needs the original secret must
    re-supply it from the environment.
-3. The pipeline is NOT thread-safe per run id. One run executes on one task at a time;
+4. The pipeline is NOT thread-safe per run id. One run executes on one task at a time;
    concurrency across different run ids is safe because state is keyed by run id.
 """
 
@@ -25,7 +28,7 @@ from chowki.errors import (
     SchemaVersionError,
     SnapshotIntegrityError,
 )
-from chowki.state.blobs import BlobStore, extract_blobs, inline_blobs
+from chowki.state.blobs import BlobStore, inline_blobs
 from chowki.state.canonical import hash_bytes
 from chowki.state.codec import decode_state, encode_state, migrate
 from chowki.state.crypto import KeyRing, decrypt, encrypt
@@ -36,11 +39,16 @@ from chowki.types import SCHEMA_VERSION, JSONValue, SnapshotEnvelope, SnapshotKi
 
 @dataclass(slots=True)
 class _RunState:
-    base: JSONValue
+    """Pipeline-owned state for one run.
+
+    The plan's `redacted_current` is realised as `stripped_current`: the redacted tree
+    after blob extraction. Retaining the pre-extraction tree as well would double the
+    per-run memory for a field nothing reads.
+    """
+
     base_bytes: int
     chain: DeltaChain
     last_hash: str
-    redacted_current: JSONValue
     stripped_current: JSONValue
 
 
@@ -72,11 +80,13 @@ class SnapshotPipeline:
         self, state: JSONValue, *, run_id: str, workflow: str, step_index: int
     ) -> SnapshotEnvelope:
         """Process state through hot-path pipeline and produce a frozen SnapshotEnvelope."""
-        # 1. Redact
-        redacted = self._redactor.redact(state)
-
-        # 2. Blob-extract
-        stripped = extract_blobs(redacted, self._blobs, threshold_bytes=self._blob_threshold_bytes)
+        # 1./2. Redact, then blob-extract, in one traversal. Order is preserved per leaf
+        # — a large secret is redacted first, so its short placeholder never becomes a
+        # blob — but a 1 MiB state is walked once instead of twice, and the walk hands
+        # back containers the caller does not share.
+        stripped: JSONValue = self._redactor.redact(
+            state, blobs=self._blobs, blob_threshold_bytes=self._blob_threshold_bytes
+        )
 
         # 3. Choose BASE vs DELTA
         prev_hash: str | None = None
@@ -127,14 +137,10 @@ class SnapshotPipeline:
         )
 
         if kind is SnapshotKind.BASE:
-            base_bytes = unencrypted_len
-            chain = DeltaChain(base=stripped)
             self._runs[run_id] = _RunState(
-                base=stripped,
-                base_bytes=base_bytes,
-                chain=chain,
+                base_bytes=unencrypted_len,
+                chain=DeltaChain(base=stripped),
                 last_hash=state_hash,
-                redacted_current=redacted,
                 stripped_current=stripped,
             )
         else:
@@ -142,7 +148,6 @@ class SnapshotPipeline:
             patch = cast(Patch, body)
             run_state.chain.append(patch)
             run_state.last_hash = state_hash
-            run_state.redacted_current = redacted
             run_state.stripped_current = stripped
 
         # 8. Dispatch
@@ -216,14 +221,10 @@ class SnapshotPipeline:
         stripped_state = chain.materialize()
         restored_state = cast(JSONValue, inline_blobs(stripped_state, self._blobs))
 
-        base_payload = encode_state(chain.base)
-        base_bytes = len(base_payload)
         self._runs[run_id] = _RunState(
-            base=chain.base,
-            base_bytes=base_bytes,
+            base_bytes=len(encode_state(chain.base)),
             chain=chain,
             last_hash=last_hash,
-            redacted_current=restored_state,
             stripped_current=stripped_state,
         )
 

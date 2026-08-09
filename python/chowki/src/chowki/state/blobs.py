@@ -39,50 +39,42 @@ class BlobStore:
         self._store.clear()
 
 
+def extract_string(value: str, store: BlobStore, *, threshold_bytes: int = 4096) -> str:
+    """Escape or blob-extract one string leaf.
+
+    Split out of :func:`extract_blobs` so the snapshot pipeline can apply it inside the
+    redaction walk instead of paying for a second full traversal of the state tree.
+    """
+    if value.startswith("ref") and value.startswith((BLOB_REF_PREFIX, ESCAPE_PREFIX)):
+        return ESCAPE_PREFIX + value
+    # A code point encodes to at most 4 UTF-8 bytes, so shorter strings cannot cross
+    # the threshold and never need encoding to find out.
+    if len(value) <= threshold_bytes // 4:
+        return value
+    data = value.encode("utf-8", errors="surrogatepass")
+    if len(data) > threshold_bytes:
+        return store.put(data)
+    return value
+
+
 def extract_blobs(value: object, store: BlobStore, *, threshold_bytes: int = 4096) -> Any:
     """Extract string leaves exceeding threshold_bytes into store and replace with refs.
+
+    Containers are always rebuilt, so the result shares no mutable object with `value`.
 
     # TODO(phase-2): extract large sub-objects, not only strings
     """
     if isinstance(value, str):
-        if value.startswith("ref") and value.startswith((BLOB_REF_PREFIX, ESCAPE_PREFIX)):
-            return ESCAPE_PREFIX + value
-        if len(value) <= threshold_bytes // 4:
-            return value
-        data = value.encode("utf-8", errors="surrogatepass")
-        if len(data) > threshold_bytes:
-            return store.put(data)
-        return value
+        return extract_string(value, store, threshold_bytes=threshold_bytes)
     if isinstance(value, dict):
         d = cast(dict[str, Any], value)
-        changed = False
-        new_dict: dict[str, Any] = {}
-        for k, v in d.items():
-            new_v = extract_blobs(v, store, threshold_bytes=threshold_bytes)
-            if not changed and new_v is not v:
-                changed = True
-            new_dict[k] = new_v
-        return new_dict if changed else d
+        return {k: extract_blobs(v, store, threshold_bytes=threshold_bytes) for k, v in d.items()}
     if isinstance(value, list):
         lst = cast(list[object], value)
-        changed = False
-        new_list: list[Any] = []
-        for x in lst:
-            new_x = extract_blobs(x, store, threshold_bytes=threshold_bytes)
-            if not changed and new_x is not x:
-                changed = True
-            new_list.append(new_x)
-        return new_list if changed else lst
+        return [extract_blobs(x, store, threshold_bytes=threshold_bytes) for x in lst]
     if isinstance(value, tuple):
         tpl = cast(tuple[object, ...], value)
-        changed = False
-        new_tuple: list[Any] = []
-        for x in tpl:
-            new_x = extract_blobs(x, store, threshold_bytes=threshold_bytes)
-            if not changed and new_x is not x:
-                changed = True
-            new_tuple.append(new_x)
-        return tuple(new_tuple) if changed else tpl
+        return tuple(extract_blobs(x, store, threshold_bytes=threshold_bytes) for x in tpl)
     return value
 
 
