@@ -114,6 +114,10 @@ class StepRecord(msgspec.Struct, kw_only=True):
     result: bytes | None = None
     error: StepError | None = None
     ended_at_utc: str | None = None
+    #: False when ``result`` holds a diagnostic marker instead of the real return value,
+    #: so the step completed but cannot be memoised. It lives on the record rather than
+    #: inside the payload because any dict a step returns could imitate a payload flag.
+    result_replayable: bool = True
 
 
 def _empty_json_object() -> JSONObject:

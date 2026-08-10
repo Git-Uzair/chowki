@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ import msgspec
 from chowki.errors import ChowkiStorageError
 from chowki.state.blobs import make_blob_ref
 from chowki.state.codec import decode_struct, encode_struct
+from chowki.storage.base import SECRET_BYTES
 from chowki.types import RunRecord, RunStatus, SnapshotEnvelope, StepRecord
 
 #: Only lifecycle value a Phase 1 claim can have; the column exists for later phases.
@@ -52,6 +54,11 @@ CREATE TABLE IF NOT EXISTS idempotency (
     args_hash TEXT,
     status TEXT,
     created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS secrets (
+    name TEXT PRIMARY KEY,
+    value BLOB
 );
 
 CREATE TABLE IF NOT EXISTS nonces (
@@ -225,6 +232,23 @@ class SQLiteStorage:
             if row is not None and row[0] != args_hash:
                 raise ChowkiStorageError("idempotency key reused with a different payload")
             return False
+
+    def get_or_create_secret(self, name: str) -> bytes:
+        """Return the named 32-byte secret, minting it on first use.
+
+        The insert-then-read pair makes the first writer's bytes the bytes everyone
+        reads, so racing processes agree. Keys derived from this secret (step
+        idempotency keys) stay reproducible after a crash because the secret outlives
+        the process that minted it.
+        """
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "INSERT INTO secrets (name, value) VALUES (?, ?) ON CONFLICT(name) DO NOTHING",
+                (name, os.urandom(SECRET_BYTES)),
+            )
+            cur = conn.execute("SELECT value FROM secrets WHERE name = ?", (name,))
+            return cast(bytes, cur.fetchone()[0])
 
     def consume_nonce(self, nonce: str, *, expires_at_epoch: float | int) -> bool:
         """Claim a nonce, which stays claimed for the lifetime of the store.

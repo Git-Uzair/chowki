@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -39,8 +40,57 @@ print(record.args_hash)
 """
 
 
+#: Runs one idempotent step against a SQLite file in a fresh interpreter. Phase ``crash``
+#: kills the process with ``os._exit`` in the middle of the side effect, leaving a RUNNING
+#: record behind; phase ``resume`` is the recovery process that must refuse to repeat it.
+#: Nothing is shared between the two but the database file, which is the whole point: the
+#: resume secret behind the idempotency key has to come back off disk.
+_CRASH_RESUME_PROBE = r"""
+import os
+import sys
+
+from chowki.config import ChowkiConfig, ChowkiEngine
+from chowki.core.context import RunContext, run_scope
+from chowki.core.decorators import step
+from chowki.errors import ChowkiStorageError
+from chowki.storage.sqlite import SQLiteStorage
+
+db_path, effects_path, phase = sys.argv[1], sys.argv[2], sys.argv[3]
+
+
+@step
+def send_invoice(customer):
+    with open(effects_path, "a", encoding="utf-8") as fh:
+        fh.write(customer + "\n")
+        fh.flush()
+    if phase == "crash":
+        os._exit(17)
+    return "sent"
+
+
+engine = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db_path)))
+ctx = RunContext(run_id="run-1", workflow="billing", engine=engine)
+try:
+    with run_scope(ctx):
+        send_invoice("acme")
+except ChowkiStorageError:
+    print("REFUSED")
+finally:
+    engine.close()
+"""
+
+
 class _Interrupted(BaseException):
     """Stands in for a process death mid-step: a BaseException the wrapper must not record."""
+
+
+def _crash_resume_phase(db: Path, effects: Path, phase: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _CRASH_RESUME_PROBE, str(db), str(effects), phase],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def _args_hash_under_seed(seed: str) -> str:
@@ -267,6 +317,75 @@ def test_idempotent_step_is_not_re_entered_after_an_unfinished_attempt(ctx: RunC
     replay = RunContext(run_id="r1", workflow="demo", engine=ctx.engine, resuming=True)
     with run_scope(replay), pytest.raises(ChowkiStorageError):
         send()
+    assert calls == [1]
+
+
+def test_a_crashed_idempotent_step_is_refused_by_a_second_process(tmp_path: Path) -> None:
+    """The guard only earns its keep across a process boundary.
+
+    A replay through the same live engine proves nothing: the secret behind the
+    idempotency key must be reproducible from the database alone, because the crash the
+    guard exists for is also what destroys any in-process state.
+    """
+    db = tmp_path / "chowki.db"
+    effects = tmp_path / "effects.log"
+
+    crashed = _crash_resume_phase(db, effects, "crash")
+    assert crashed.returncode == 17, crashed.stderr
+    assert effects.read_text(encoding="utf-8").splitlines() == ["acme"]
+
+    resumed = _crash_resume_phase(db, effects, "resume")
+    assert resumed.returncode == 0, resumed.stderr
+    assert "REFUSED" in resumed.stdout
+    assert effects.read_text(encoding="utf-8").splitlines() == ["acme"]
+
+
+def test_non_finite_float_arguments_do_not_abort_the_step(ctx: RunContext) -> None:
+    """``nan`` has no canonical JSON form, but it must not stop a run from starting."""
+
+    @step
+    def scale(factor: float) -> str:
+        return repr(factor)
+
+    with run_scope(ctx):
+        assert scale(float("nan")) == "nan"
+        assert scale(float("inf")) == "inf"
+
+    records = ctx.engine.storage.list_steps("r1")
+    assert [r.status for r in records] == [StepStatus.COMPLETED, StepStatus.COMPLETED]
+    assert all(r.args_hash.startswith("sha256:") for r in records)
+
+
+def test_unicode_equivalent_argument_keys_do_not_abort_the_step(ctx: RunContext) -> None:
+    """Two keys that collide only after NFC normalization must not stop a run either."""
+
+    @step
+    def index(rows: dict[str, int]) -> int:
+        return len(rows)
+
+    with run_scope(ctx):
+        assert index({"caf\u00e9": 1, "cafe\u0301": 2}) == 2
+
+    rec = ctx.engine.storage.get_step("r1", "index#0")
+    assert rec is not None
+    assert rec.status is StepStatus.COMPLETED
+
+
+def test_a_result_dict_shaped_like_the_marker_is_still_memoised(ctx: RunContext) -> None:
+    """A user payload must not be able to impersonate the "not replayable" flag."""
+    calls: list[int] = []
+
+    @step
+    def describe() -> dict[str, str]:
+        calls.append(1)
+        return {UNSERIALIZABLE_MARKER: "int"}
+
+    with run_scope(ctx):
+        assert describe() == {UNSERIALIZABLE_MARKER: "int"}
+
+    replay = RunContext(run_id="r1", workflow="demo", engine=ctx.engine, resuming=True)
+    with run_scope(replay):
+        assert describe() == {UNSERIALIZABLE_MARKER: "int"}
     assert calls == [1]
 
 

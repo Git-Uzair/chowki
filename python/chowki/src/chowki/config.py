@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from chowki.errors import ChowkiConfigError
 from chowki.state.blobs import BlobStore
@@ -15,6 +15,9 @@ from chowki.storage import DEFAULT_DB_PATH, SQLiteStorage, StorageAdapter
 if TYPE_CHECKING:
     from chowki.guardrails.config import GuardrailConfig  # type: ignore[import-not-found]
     from chowki.hitl.gateway import ChannelGateway  # type: ignore[import-not-found]
+
+#: Slot name (not a credential) under which the store keeps the resume HMAC bytes.
+_RESUME_SLOT: Final[str] = "resume"
 
 
 @dataclass(slots=True)
@@ -58,10 +61,21 @@ class ChowkiEngine:
         )
         self.blobs: BlobStore = BlobStore()
         self._pipelines: dict[str, SnapshotPipeline] = {}
+        self._resume_secret: bytes | None = self._config.resume_secret
 
     @property
     def resume_secret(self) -> bytes:
-        return self._config.resume_secret or self.redactor.hmac_key
+        """HMAC secret behind step idempotency keys.
+
+        It is read from the store rather than generated per process: the crash a step's
+        idempotency guard exists for is exactly the event that would otherwise change
+        the secret, leaving the recovering process unable to recognise its own claim
+        (``docs/research/03-durable-execution.md:73``). Cached because ``_begin`` asks
+        for it on every step.
+        """
+        if self._resume_secret is None:
+            self._resume_secret = self.storage.get_or_create_secret(_RESUME_SLOT)
+        return self._resume_secret
 
     def pipeline_for(self, run_id: str) -> SnapshotPipeline:
         """Get or create memoised SnapshotPipeline for a given run_id."""
