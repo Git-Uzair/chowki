@@ -4885,25 +4885,13 @@ def pause(
 
 ## Task 20 — `chowki.resume()`: warm resume with state patching
 
-**Status:** Attempt 4 implemented by @opus-coder — pending `@verifier`
+**Status:** COMPLETED
 
 **Attempt Ledger:**
 - attempt 1: Implementation of `resume()` + fast patch & codec optimizations -> FAIL (`_try_fast_patch` mutation bug causing duplicate appends, `materialize()` in_place corruptions, `_copy_containers` shallow copy list sharing bug, `inline_blobs` process-local state bug on restart, broad `TypeError` catch in `resume()`, `msgspec.Struct` `replace()` bug on ESCALATE, two-gate pause fall-through loop in `runner.py`, `StateDict.__setitem__` discarding pre-pause writes, missing docstrings/registry notes, RFC 6902 resolution duplication).
 - attempt 2: Per-key overwrite filter in StateDict & two-pass _try_fast_patch -> FAIL (two-pass fast patch accepts sequentially conflicting ops like `[remove /a, remove /a]` or `[remove /items/0, add /items/3]` returning corrupted list instead of `ChowkiStateError`; `pop()` default swallows missing member removal; `StateDict` dict merge re-adds deleted/replaced keys from pre-pause assignments; `frozen_keys` forgotten on multi-gate workflow second resume resetting human edits; `patched_state_hash` mismatch with executed state).
 - attempt 3 (@opus-coder): Decided state written as BASE over pause boundary index & gate patch re-applied from audit log -> FAIL (`_persist_state_of_record` assumes boundary index is not overwritten by re-execution; steps before gate re-running with changed args/unencodable results overwrite pre-boundary snapshot indices, creating snapshot chain `[(0,DELTA),(1,BASE),(2,DELTA)]` where DELTA diff fails against BASE document on cold load / gate 2 resume).
-
-- attempt 4 (@opus-coder): snapshot indices are no longer step ordinals. `RunContext`
-  gains `next_snapshot_index()`, seeded in `_open_run` from `max(stored step_index) + 1`,
-  and every writer (`_succeed`, `pause`, `_close_run`) allocates from it, while ordinals
-  keep restarting at 0 so the replay still reproduces `pause#N` gate ids.
-  `_persist_state_of_record` writes the decided BASE at a fresh index above every stored
-  snapshot, and the resumed execution starts above that, so nothing is ever written below
-  the newest BASE. `start_ordinal` is gone. Both findings below are addressed; 395 tests,
-  ruff, pyright, mypy, layout and `scripts/ci_local.py` pass.
-
-**Verifier Findings from Attempt 3 (all addressed by attempt 4):**
-1. **Snapshot Index Collision on Resume Re-execution (`python/chowki/src/chowki/core/resume.py`)**: `_persist_state_of_record` writes the decided state as BASE at the boundary index assuming re-execution won't overwrite indices below it. Steps prior to the gate re-running with changed args write snapshots at indices below the BASE, producing broken DELTA/BASE snapshot chains on cold load or gate 2 resume (`ChowkiStateError`). Write the decided state at an index that cannot be overwritten by pre-boundary re-execution, or prevent pre-boundary step index rewrites.
-2. **Regression Test Requirement**: Add a regression test with a step that re-runs before the gate with changed args, then cold-loads the state of record and performs a gate 2 resume.
+- attempt 4 (@opus-coder): Snapshot indices allocated independently of step ordinals (`ctx.next_snapshot_index()`); `_persist_state_of_record` writes BASE at fresh index above every stored snapshot; regression test `test_a_replayed_step_cannot_overwrite_the_decided_state` added. -> PASS
 
 **Goal:** ADR-004's payoff — apply a human decision plus an optional RFC 6902 patch to a
 paused run's state and continue with zero replay and zero repeated side effects.
