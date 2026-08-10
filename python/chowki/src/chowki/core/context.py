@@ -4,7 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from chowki.guardrails.budget import BudgetTracker
 from chowki.guardrails.loops import LoopDetector
@@ -12,6 +12,33 @@ from chowki.types import JSONObject, PauseRequest, StepRecord, Usage
 
 if TYPE_CHECKING:
     from chowki.config import ChowkiEngine
+
+
+class StateDict(dict[str, Any]):
+    """Special dict that protects patched state keys from being overwritten
+    by unpatched step re-executions during warm resume.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._frozen_keys: set[str] = set(self.keys())
+
+    def unfreeze(self) -> None:
+        self._frozen_keys.clear()
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if key in self._frozen_keys:
+            return
+        super().__setitem__(key, value)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        other = dict(*args, **kwargs)
+        for k, v in other.items():
+            self[k] = v
+
+    def clear(self) -> None:
+        self._frozen_keys.clear()
+        super().clear()
 
 
 def _default_state() -> JSONObject:
@@ -26,6 +53,10 @@ def _default_counters() -> dict[str, int]:
     return {}
 
 
+def _default_resumed_step_ids() -> set[str]:
+    return set()
+
+
 @dataclass(slots=True)
 class RunContext:
     run_id: str
@@ -33,6 +64,7 @@ class RunContext:
     engine: ChowkiEngine
     state: JSONObject = field(default_factory=_default_state)
     resuming: bool = False
+    resumed_step_ids: set[str] = field(default_factory=_default_resumed_step_ids)
     usage: Usage = field(default_factory=Usage)
     step_records: dict[str, StepRecord] = field(default_factory=_default_step_records)
     pause: PauseRequest | None = None

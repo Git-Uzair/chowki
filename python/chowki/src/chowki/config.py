@@ -63,6 +63,7 @@ class ChowkiEngine:
         )
         self.blobs: BlobStore = BlobStore()
         self._pipelines: dict[str, SnapshotPipeline] = {}
+        self.pending_resume_state: dict[str, tuple[str, dict[str, Any]]] = {}
 
         # Falsiness, not `is None`: b"" and "" are not secrets, and hmac.new(b"", ...) is
         # forgeable by anyone who guesses the config was left blank.

@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from msgspec.structs import replace as msgspec_replace
 
@@ -30,11 +30,22 @@ from chowki.errors import (
 )
 from chowki.state.blobs import BlobStore, inline_blobs
 from chowki.state.canonical import hash_bytes
-from chowki.state.codec import encode_state, unseal
+from chowki.state.codec import decode_state, encode_state, unseal
 from chowki.state.crypto import KeyRing, decrypt, encrypt
 from chowki.state.delta import DeltaChain, Patch, make_patch
 from chowki.state.redact import Redactor
 from chowki.types import SCHEMA_VERSION, JSONValue, SnapshotEnvelope, SnapshotKind
+
+
+def _copy_containers(value: Any) -> Any:
+    """Fast shallow copy of dict and list container structures."""
+    if isinstance(value, dict):
+        d = cast(Any, value)
+        return {k: _copy_containers(v) for k, v in d.items()}
+    if isinstance(value, list):
+        lst = cast(Any, value)
+        return list(lst)
+    return value
 
 
 @dataclass(slots=True)
@@ -141,14 +152,14 @@ class SnapshotPipeline:
                 base_bytes=unencrypted_len,
                 chain=DeltaChain(base=stripped),
                 last_hash=state_hash,
-                stripped_current=stripped,
+                stripped_current=decode_state(encode_state(stripped)),
             )
         else:
             run_state = self._runs[run_id]
             patch = cast(Patch, body)
             run_state.chain.append(patch)
             run_state.last_hash = state_hash
-            run_state.stripped_current = stripped
+            run_state.stripped_current = decode_state(encode_state(stripped))
 
         # 8. Dispatch
         self.dispatch(env)
@@ -177,6 +188,7 @@ class SnapshotPipeline:
         run_id = envelopes[-1].run_id
         last_hash = envelopes[-1].state_hash
 
+        base_bytes = 0
         for env in envelopes:
             if env.key_id is not None or env.nonce is not None:
                 if self._keyring is None:
@@ -192,6 +204,7 @@ class SnapshotPipeline:
             body = unseal(env)
 
             if env.kind is SnapshotKind.BASE:
+                base_bytes = len(env.payload)
                 chain = DeltaChain(base=body)
             elif env.kind is SnapshotKind.DELTA:
                 if chain is None:
@@ -203,13 +216,16 @@ class SnapshotPipeline:
             raise ChowkiStateError("no valid base snapshot found in envelopes")
 
         stripped_state = chain.materialize()
-        restored_state = cast(JSONValue, inline_blobs(stripped_state, self._blobs))
+        if len(self._blobs) > 0 or getattr(self._blobs, "has_escapes", False):
+            restored_state = cast(JSONValue, inline_blobs(stripped_state, self._blobs))
+        else:
+            restored_state = stripped_state
 
         self._runs[run_id] = _RunState(
-            base_bytes=len(encode_state(chain.base)),
+            base_bytes=base_bytes,
             chain=chain,
             last_hash=last_hash,
-            stripped_current=stripped_state,
+            stripped_current=_copy_containers(stripped_state),
         )
 
         return restored_state

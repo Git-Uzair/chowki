@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Final, TypeVar, cast
@@ -25,7 +26,7 @@ def encode_state(value: JSONValue) -> bytes:
 
 def decode_state(raw: bytes) -> JSONValue:
     """Decode MessagePack bytes to state value."""
-    return cast(JSONValue, _DECODER.decode(raw))
+    return cast(JSONValue, msgspec.msgpack.decode(raw))
 
 
 def encode_struct(obj: msgspec.Struct) -> bytes:
@@ -76,13 +77,14 @@ def unseal(env: SnapshotEnvelope) -> JSONValue:
             f"(v{SCHEMA_VERSION}); upgrade chowki"
         )
 
-    computed_hash = hash_bytes(env.payload)
-    if computed_hash != env.state_hash:
+    digest = hashlib.sha256(env.payload).hexdigest()
+    if env.state_hash != "sha256:" + digest:
+        computed_hash = "sha256:" + digest
         raise SnapshotIntegrityError(
             f"state_hash mismatch: envelope has {env.state_hash}, payload hash is {computed_hash}"
         )
 
-    state = decode_state(env.payload)
+    state = cast(JSONValue, msgspec.msgpack.decode(env.payload))
 
     if env.v < SCHEMA_VERSION:
         if not isinstance(state, dict):
