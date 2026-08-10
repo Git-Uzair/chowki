@@ -14,6 +14,7 @@ from typing import Any, Final, ParamSpec, TypeVar, cast, overload
 import structlog
 
 from chowki.core.context import RunContext, current_run, in_run
+from chowki.core.runner import workflow
 from chowki.errors import ChowkiStorageError, classify
 from chowki.state.canonical import content_hash
 from chowki.state.codec import decode_state, encode_state
@@ -278,3 +279,6 @@ def step(
     if callable(func):
         return decorator(func)
     return decorator
+
+
+__all__ = ["step", "workflow"]

@@ -64,6 +64,10 @@ class ChowkiEngine:
         self._resume_secret: bytes | None = self._config.resume_secret
 
     @property
+    def config(self) -> ChowkiConfig:
+        return self._config
+
+    @property
     def resume_secret(self) -> bytes:
         """HMAC secret behind step idempotency keys.
 
