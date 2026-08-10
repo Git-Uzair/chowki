@@ -115,6 +115,28 @@ def test_an_ephemeral_resume_secret_is_warned_about() -> None:
         ChowkiEngine(ChowkiConfig(storage=MemoryStorage())).close()
 
 
+@pytest.mark.parametrize("empty", [b"", ""])
+def test_an_empty_resume_secret_is_treated_as_absent(empty: bytes | str) -> None:
+    """An empty secret is not a secret: HMAC with b"" is forgeable by anyone."""
+    with pytest.warns(UserWarning, match="ephemeral"):
+        ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), resume_secret=empty)).close()
+
+
+@pytest.mark.parametrize("empty", [b"", ""])
+def test_a_token_forged_with_an_empty_key_is_rejected(empty: bytes | str) -> None:
+    """The empty-key issuer stands in for an attacker who knows the config was blank."""
+    with pytest.warns(UserWarning, match="ephemeral"):
+        engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), resume_secret=empty))
+    try:
+        forged = TokenIssuer(secret=b"", storage=MemoryStorage()).issue(
+            run_id="r", step_id="s", permitted_actions=("APPROVE",)
+        )
+        with pytest.raises(InvalidResumeToken):
+            engine.tokens.verify(forged, action="APPROVE")
+    finally:
+        engine.close()
+
+
 def test_a_configured_resume_secret_warns_about_nothing() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")

@@ -64,7 +64,9 @@ class ChowkiEngine:
         self.blobs: BlobStore = BlobStore()
         self._pipelines: dict[str, SnapshotPipeline] = {}
 
-        if self._config.resume_secret is None:
+        # Falsiness, not `is None`: b"" and "" are not secrets, and hmac.new(b"", ...) is
+        # forgeable by anyone who guesses the config was left blank.
+        if not self._config.resume_secret:
             token_secret = os.urandom(32)
             self._resume_secret = None
             # stdlib warnings, not structlog: this fires on every engine, and structlog's

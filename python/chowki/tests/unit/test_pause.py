@@ -62,6 +62,29 @@ def test_pause_redacts_the_payload(engine: ChowkiEngine) -> None:
     assert secret not in str(run.pause.payload)
 
 
+def test_pause_persists_the_run_even_if_the_workflow_swallows_the_exception(
+    engine: ChowkiEngine,
+) -> None:
+    """A workflow that catches WorkflowPaused must not leave the run marked RUNNING."""
+
+    @workflow(engine=engine)
+    def pipeline() -> str:
+        try:
+            pause(reason="review", payload={"amount": 1})
+        except WorkflowPaused:
+            return "swallowed"
+        raise AssertionError("must not be reached")
+
+    assert pipeline(run_id="r4") == "swallowed"
+
+    run = engine.storage.get_run("r4")
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+    assert run.pause is not None
+    assert run.pause.reason == "review"
+    assert run.pause.payload == {"amount": 1}
+
+
 def test_pause_outside_a_workflow_is_an_error() -> None:
     with pytest.raises(LookupError):
         pause(reason="nope")
