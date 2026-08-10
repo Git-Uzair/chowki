@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -66,6 +67,14 @@ class ChowkiEngine:
         if self._config.resume_secret is None:
             token_secret = os.urandom(32)
             self._resume_secret = None
+            # stdlib warnings, not structlog: this fires on every engine, and structlog's
+            # default logger prints to stdout, which subprocess probes read verbatim.
+            warnings.warn(
+                "resume_secret not configured; resume tokens are signed with an ephemeral "
+                "per-process key and will not verify after a restart or deploy",
+                UserWarning,
+                stacklevel=2,
+            )
         elif isinstance(self._config.resume_secret, str):
             token_secret = self._config.resume_secret.encode("utf-8")
             self._resume_secret = token_secret

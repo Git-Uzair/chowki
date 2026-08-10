@@ -1,10 +1,14 @@
 # python/chowki/tests/unit/test_resume_tokens.py
 from __future__ import annotations
 
+import subprocess
+import sys
 import time
+import warnings
 
 import pytest
 
+from chowki.config import ChowkiConfig, ChowkiEngine
 from chowki.errors import (
     ExpiredResumeToken,
     InvalidResumeToken,
@@ -14,6 +18,16 @@ from chowki.hitl.tokens import TokenIssuer, decode_unverified
 from chowki.storage.memory import MemoryStorage
 
 SECRET = b"a-32-byte-or-longer-test-secret!!"
+
+#: Builds an engine with an ephemeral resume secret in a fresh interpreter. The ephemeral
+#: secret warning must never reach stdout: other probes in this suite parse a subprocess's
+#: stdout verbatim (``test_step_decorator.py``), so a log line there corrupts their data.
+_ENGINE_PROBE = """
+from chowki.config import ChowkiConfig, ChowkiEngine
+from chowki.storage.memory import MemoryStorage
+
+ChowkiEngine(ChowkiConfig(storage=MemoryStorage())).close()
+"""
 
 
 @pytest.fixture
@@ -93,6 +107,29 @@ def test_nonces_are_unique_across_issues(issuer: TokenIssuer) -> None:
         for _ in range(200)
     }
     assert len(nonces) == 200
+
+
+def test_an_ephemeral_resume_secret_is_warned_about() -> None:
+    """Tokens minted with a per-process secret die on restart; the operator must be told."""
+    with pytest.warns(UserWarning, match="ephemeral"):
+        ChowkiEngine(ChowkiConfig(storage=MemoryStorage())).close()
+
+
+def test_a_configured_resume_secret_warns_about_nothing() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), resume_secret=SECRET)).close()
+
+
+def test_the_warning_goes_to_stderr_leaving_stdout_clean() -> None:
+    proc = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _ENGINE_PROBE],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert proc.stdout == ""
+    assert "ephemeral" in proc.stderr
 
 
 def test_verification_is_constant_time() -> None:
