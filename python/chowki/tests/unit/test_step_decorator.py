@@ -395,14 +395,17 @@ def test_an_unencodable_result_is_not_silently_swallowed(ctx: RunContext) -> Non
     Masking it behind the unserialisable marker would report the step COMPLETED while
     throwing the real result away, so the encoder error must surface.
     """
+    calls: list[int] = []
 
     @step
     def too_big() -> int:
+        calls.append(1)
         return 2**64  # one past msgpack's uint64 ceiling
 
     with run_scope(ctx), pytest.raises(OverflowError):
         too_big()
 
+    assert len(calls) == 1
     rec = ctx.engine.storage.get_step("r1", "too_big#0")
     assert rec is not None
     assert rec.status is not StepStatus.COMPLETED
@@ -444,7 +447,7 @@ def test_step_retries_a_rate_limit_then_succeeds(ctx: RunContext) -> None:
     from chowki.errors import RateLimitError
 
     ctx.engine.config.guardrails = replace(
-        ctx.engine.config.guardrails, retry_base_seconds=0.001, retry_max_seconds=0.01
+        ctx.engine.config.guardrails, retry_base_seconds=0.0001, retry_max_seconds=0.0001
     )
 
     attempts: list[int] = []
@@ -467,6 +470,7 @@ def test_step_retries_a_rate_limit_then_succeeds(ctx: RunContext) -> None:
 
 def test_step_does_not_retry_a_loop_detection(ctx: RunContext) -> None:
     from chowki.errors import InfiniteLoopDetected
+    from chowki.guardrails.breaker import BreakerAction
 
     attempts: list[int] = []
 
@@ -475,6 +479,7 @@ def test_step_does_not_retry_a_loop_detection(ctx: RunContext) -> None:
         attempts.append(1)
         raise InfiniteLoopDetected("cycle")
 
-    with run_scope(ctx), pytest.raises(InfiniteLoopDetected):
+    with run_scope(ctx), pytest.raises(InfiniteLoopDetected) as exc_info:
         looping()
     assert len(attempts) == 1
+    assert getattr(exc_info.value, "chowki_action", None) is BreakerAction.PAUSE

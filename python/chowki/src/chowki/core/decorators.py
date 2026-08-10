@@ -280,8 +280,7 @@ def step(
                     rec.attempts = initial_attempts + attempt + 1
                     try:
                         res = await fn(*args, **kwargs)
-                        _succeed(ctx, rec, res, snapshot)
-                        return cast(R, res)
+                        break
                     except (WorkflowPaused, HumanRejectedError):
                         raise
                     except Exception as exc:
@@ -291,6 +290,9 @@ def step(
                             attempt += 1
                             continue
                         raise
+
+                _succeed(ctx, rec, res, snapshot)
+                return cast(R, res)
 
             return cast(Callable[P, R], async_wrapper)
         else:
@@ -311,8 +313,7 @@ def step(
                     rec.attempts = initial_attempts + attempt + 1
                     try:
                         res = fn(*args, **kwargs)
-                        _succeed(ctx, rec, res, snapshot)
-                        return res
+                        break
                     except (WorkflowPaused, HumanRejectedError):
                         raise
                     except Exception as exc:
@@ -322,6 +323,9 @@ def step(
                             attempt += 1
                             continue
                         raise
+
+                _succeed(ctx, rec, res, snapshot)
+                return res
 
             return sync_wrapper
 
