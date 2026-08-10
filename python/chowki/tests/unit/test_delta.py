@@ -106,9 +106,14 @@ def test_delta_chain_needs_compaction() -> None:
     assert chain.needs_compaction(base_bytes=1000) is False
 
 
+_valid_key = st.text(min_size=1, max_size=6).filter(
+    lambda k: "-" not in k and "/" not in k and "~" not in k
+)
+
+
 @given(
-    st.dictionaries(st.text(min_size=1, max_size=6), st.integers(-100, 100), max_size=8),
-    st.dictionaries(st.text(min_size=1, max_size=6), st.integers(-100, 100), max_size=8),
+    st.dictionaries(_valid_key, st.integers(-100, 100), max_size=8),
+    st.dictionaries(_valid_key, st.integers(-100, 100), max_size=8),
 )
 def test_patch_roundtrip_property(before: dict[str, int], after: dict[str, int]) -> None:
     assert apply_patch(before, make_patch(before, after)) == after

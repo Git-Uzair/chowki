@@ -1,6 +1,8 @@
 # python/chowki/tests/unit/test_audit.py
 from __future__ import annotations
 
+from typing import Any, cast
+
 from chowki.hitl.audit import AuditLog, build_audit_record
 from chowki.storage.memory import MemoryStorage
 
@@ -94,3 +96,36 @@ def test_secrets_never_reach_the_audit_log() -> None:
         )
     )
     assert secret not in str(log.entries(run_id="r"))
+
+
+def test_audit_log_preserves_high_entropy_run_id_and_system_metadata() -> None:
+    from chowki.state.redact import Redactor
+
+    high_entropy_run_id = "Zk9x2Lq7Rt4vNb8Wm3Ys6Pd1Ae"
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
+    log = AuditLog(MemoryStorage(), redactor=Redactor(hmac_key=b"k"))
+
+    rec = build_audit_record(
+        run_id=high_entropy_run_id,
+        step_id="pause#0",
+        action="EDIT",
+        actor={"user_id": "U123456", "token": secret},
+        original_state_hash="sha256:" + "a" * 64,
+        patched_state_hash="sha256:" + "b" * 64,
+        json_patch=[{"op": "replace", "path": "/key", "value": secret}],
+        nonce="n123",
+        note="Approved secret " + secret,
+    )
+    log.append(rec)
+
+    entries = log.entries(run_id=high_entropy_run_id)
+    assert len(entries) == 1
+    stored = entries[0]
+
+    assert stored["run_id"] == high_entropy_run_id
+    assert stored["step_id"] == "pause#0"
+    assert stored["action"] == "EDIT"
+    assert stored["original_state_hash"] == "sha256:" + "a" * 64
+    assert stored["patched_state_hash"] == "sha256:" + "b" * 64
+    assert cast(dict[str, Any], stored["verification_details"])["nonce"] == "n123"
+    assert secret not in str(stored)

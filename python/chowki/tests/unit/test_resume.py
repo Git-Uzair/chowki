@@ -643,3 +643,83 @@ def test_a_human_edit_survives_a_later_gate(engine: ChowkiEngine) -> None:
     assert res.value == "done"
     assert observed[-1] == {"proposal": {"amount": 7}, "mid": "mid"}
     assert probe_state_of_record(engine, "r_2g") == {"proposal": {"amount": 7}, "mid": "mid"}
+
+
+def test_multi_gate_resume_with_high_entropy_run_id(engine: ChowkiEngine) -> None:
+    high_entropy_run_id = "Zk9x2Lq7Rt4vNb8Wm3Ys6Pd1Ae"
+
+    @workflow(engine=engine)
+    def multi_gate() -> str:
+        current_run().state["step"] = 1
+        pause(reason="gate1", permitted_actions=("APPROVE", "EDIT"))
+        current_run().state["step"] = 2
+        pause(reason="gate2", permitted_actions=("APPROVE",))
+        return "finished"
+
+    with pytest.raises(WorkflowPaused) as exc1:
+        multi_gate(run_id=high_entropy_run_id)
+    token1 = exc1.value.token
+    assert token1 is not None
+
+    with pytest.raises(WorkflowPaused) as exc2:
+        resume(
+            run_id=high_entropy_run_id,
+            token=token1,
+            decision=Decision.EDIT,
+            patch=[{"op": "replace", "path": "/step", "value": 1.5}],
+            workflow_fn=multi_gate,
+            engine=engine,
+        )
+    token2 = exc2.value.token
+    assert token2 is not None
+
+    res = resume(
+        run_id=high_entropy_run_id,
+        token=token2,
+        decision=Decision.APPROVE,
+        workflow_fn=multi_gate,
+        engine=engine,
+    )
+    assert res.value == "finished"
+
+    audits = engine.storage.list_audit(run_id=high_entropy_run_id)
+    assert len(audits) == 2
+    assert audits[0]["run_id"] == high_entropy_run_id
+    assert audits[1]["run_id"] == high_entropy_run_id
+
+
+def test_state_hash_alignment_with_secrets(engine: ChowkiEngine) -> None:
+    from chowki.state.canonical import content_hash
+
+    run_id = "r_sec_align"
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
+
+    @workflow(engine=engine)
+    def wf_secret() -> str:
+        current_run().state["key"] = "initial"
+        pause(reason="gate", permitted_actions=("EDIT",))
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as exc:
+        wf_secret(run_id=run_id)
+    token = exc.value.token
+    assert token is not None
+
+    result = resume(
+        run_id=run_id,
+        token=token,
+        decision=Decision.EDIT,
+        patch=[{"op": "replace", "path": "/key", "value": secret}],
+        workflow_fn=wf_secret,
+        engine=engine,
+    )
+    assert result.value == "done"
+
+    audits = engine.storage.list_audit(run_id=run_id)
+    assert len(audits) == 1
+    audit_record = audits[0]
+    assert audit_record["patched_state_hash"] == result.state_hash_after
+
+    # Content hash of the persisted state of record must match state_hash_after
+    persisted_state = probe_state_of_record(engine, run_id)
+    assert content_hash(persisted_state) == result.state_hash_after

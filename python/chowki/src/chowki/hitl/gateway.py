@@ -60,7 +60,11 @@ class ChannelAction(msgspec.Struct, kw_only=True, frozen=True):
 
 @runtime_checkable
 class ChannelGateway(Protocol):
-    """Pluggable channel interface for Human-in-the-Loop notifications and ingress."""
+    """Pluggable channel interface for Human-in-the-Loop notifications and ingress.
+
+    `verify_ingress` takes raw `body` bytes because reserialisation breaks HMAC signature
+    verification.
+    """
 
     name: str
 
@@ -70,9 +74,17 @@ class ChannelGateway(Protocol):
         self, handle: GatewayHandle, decision: Decision, *, actor: JSONObject | None = None
     ) -> None: ...
 
-    def verify_ingress(self, *, body: bytes, headers: Mapping[str, str]) -> bool: ...
+    def verify_ingress(self, *, body: bytes, headers: Mapping[str, str]) -> bool:
+        """Verify authenticity of inbound channel webhooks.
 
-    def parse_action(self, *, body: bytes, headers: Mapping[str, str]) -> ChannelAction | None: ...
+        Takes raw `body` bytes, never a parsed body, because reserialisation breaks HMAC
+        signature verification.
+        """
+        ...
+
+    def parse_action(self, *, body: bytes, headers: Mapping[str, str]) -> ChannelAction | None:
+        """Parse action payload received from an inbound channel webhook."""
+        ...
 
 
 class InMemoryGateway:
@@ -95,7 +107,13 @@ class InMemoryGateway:
         self.confirmations.append((handle, decision, actor or {}))
 
     def verify_ingress(self, *, body: bytes, headers: Mapping[str, str]) -> bool:
+        """Verify authenticity of inbound channel webhooks.
+
+        Takes raw `body` bytes because reserialisation breaks HMAC signature verification.
+        Returns `False` to deny all ingress by default.
+        """
         return False
 
     def parse_action(self, *, body: bytes, headers: Mapping[str, str]) -> ChannelAction | None:
+        """Parse action payload received from an inbound channel webhook."""
         return None

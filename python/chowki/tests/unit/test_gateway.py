@@ -117,6 +117,14 @@ def test_verify_ingress_default_denies() -> None:
     assert gw.verify_ingress(body=b"{}", headers={}) is False
 
 
+def test_verify_ingress_docstrings_mention_raw_bytes() -> None:
+    for cls in (ChannelGateway, InMemoryGateway, ConsoleGateway):
+        doc = cls.verify_ingress.__doc__
+        assert doc is not None, f"{cls.__name__}.verify_ingress is missing a docstring"
+        assert "raw `body` bytes" in doc
+        assert "reserialisation breaks HMAC" in doc
+
+
 def test_console_gateway_writes_the_token_and_actions(capsys: pytest.CaptureFixture[str]) -> None:
     gw = ConsoleGateway()
     gw.notify(
