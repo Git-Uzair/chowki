@@ -138,6 +138,26 @@ def test_check_layout_scans_files_named_dist_or_build(
     assert check_layout.main() == 1
 
 
+def test_check_layout_detects_a_top_level_source_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A language source tree at the repo root violates ADR-001 and must fail."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("content\n", encoding="utf-8")
+
+    assert check_layout.main() == 0
+
+    stray = tmp_path / "src" / "chowki" / "core"
+    stray.mkdir(parents=True, exist_ok=True)
+    (stray / "decorators.py").write_text("stray = True\n", encoding="utf-8")
+
+    assert check_layout.main() == 1
+
+
 def test_check_layout_ignores_coverage_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import inspect
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final, ParamSpec, TypeVar, cast, overload
 
@@ -19,27 +19,48 @@ from chowki.types import JSONValue, StepError, StepRecord, StepStatus
 
 _UNSERIALIZABLE: Final = "__chowki_unserializable__"
 _MISSING: Final = object()
+_CYCLE: Final = "<cycle>"
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
 def _signature(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
-    def _sanitize(val: object) -> Any:
+    """Reduce a call to a JSON-shaped description whose content hash is a resume key.
+
+    The hash has to be identical in the process that resumes a run, so nothing that
+    varies per process may reach it: set iteration order is salted by ``PYTHONHASHSEED``
+    and object addresses are not stable, hence the sort and the ``<type>`` fallback.
+    ``seen`` holds the ids of the containers on the path to the current value, so a
+    self-referential argument degrades to a marker instead of exhausting the stack,
+    while a value merely repeated between siblings is still described in full.
+    """
+
+    def _sanitize(val: object, seen: frozenset[int]) -> Any:
         if val is None or isinstance(val, (bool, int, float, str)):
             return val
+        if id(val) in seen:
+            return _CYCLE
+        inner = seen | {id(val)}
         if isinstance(val, dict):
             d = cast(dict[object, object], val)
-            return {str(k): _sanitize(v) for k, v in d.items()}
-        if isinstance(val, (list, tuple, set, frozenset)):
+            return {str(k): _sanitize(v, inner) for k, v in d.items()}
+        if isinstance(val, (set, frozenset)):
+            members = cast(Iterable[object], val)
+            # Sorting on the repr of the already-sanitised member is a total order over
+            # the JSON shapes this returns; equal reprs mean equal members, so the ties
+            # it leaves cannot change the hash.
+            return sorted((_sanitize(x, inner) for x in members), key=repr)
+        if isinstance(val, (list, tuple)):
             seq = cast(Sequence[object], val)
-            return [_sanitize(x) for x in seq]
+            return [_sanitize(x, inner) for x in seq]
         return f"<{type(val).__name__}>"
 
+    empty: frozenset[int] = frozenset()
     return {
         "name": name,
-        "args": _sanitize(args),
-        "kwargs": _sanitize(kwargs),
+        "args": _sanitize(args, empty),
+        "kwargs": _sanitize(kwargs, empty),
     }
 
 
@@ -56,16 +77,21 @@ def _begin(
     args_hash = content_hash(sig)
 
     existing = ctx.engine.storage.get_step(ctx.run_id, step_id)
+    # A record on its own only proves that some attempt *started*. Only COMPLETED with
+    # the same arguments proves one finished, and that is the sole evidence that this
+    # step's side effect is already accounted for.
+    finished = False
     if existing is not None and existing.status is StepStatus.COMPLETED:
         if existing.args_hash == args_hash:
-            if existing.result is not None:
-                decoded = decode_state(existing.result)
-                if isinstance(decoded, dict) and _UNSERIALIZABLE in decoded:
-                    pass
-                else:
-                    return existing, decoded
-            else:
+            finished = True
+            if existing.result is None:
                 return existing, None
+            decoded = decode_state(existing.result)
+            if not (isinstance(decoded, dict) and _UNSERIALIZABLE in decoded):
+                return existing, decoded
+            # The step finished but its result cannot be replayed, so the body has to
+            # run again. The claim is deliberately left alone: this step is already
+            # accounted for, and re-claiming a key we own would abort the run.
         else:
             logger = structlog.get_logger()
             logger.warning(
@@ -80,11 +106,18 @@ def _begin(
     msg = f"{ctx.run_id}|{step_id}|{args_hash}".encode()
     idempotency_key = hmac.new(engine_secret, msg, hashlib.sha256).hexdigest()
 
-    if existing is None and idempotent:
+    if idempotent and not finished:
+        # Reaching here means no completed attempt is on record, so the side effect is
+        # about to happen for what must be the first time. The key is deterministic
+        # (`03-durable-execution.md:73`), so a refusal means someone already owns this
+        # effect -- a concurrent worker, or an earlier attempt of this run that died
+        # mid-step. Neither can be replayed safely; Task 18's breaker owns the policy
+        # for what to do about it.
         claimed = ctx.engine.storage.claim_idempotency_key(idempotency_key, args_hash=args_hash)
         if not claimed:
             raise ChowkiStorageError(
-                f"idempotency key {idempotency_key} already claimed for step {step_id}"
+                f"step {step_id} of run {ctx.run_id} has an unfinished idempotent attempt: "
+                f"idempotency key {idempotency_key} is already claimed"
             )
 
     # Guardrail pre-checks (Tasks 16-17) go here behind ctx.engine.guardrails
@@ -116,7 +149,11 @@ def _succeed(
     try:
         redacted = cast(JSONValue, ctx.engine.redactor.redact(result))
         encoded_result = encode_state(redacted)
-    except Exception:
+    except TypeError:
+        # TypeError is the codec saying "no msgpack encoding exists for this type", which
+        # is a legitimate result the run should survive. Every other encoder error is a
+        # defect in the value (an out-of-range int, a non-finite float); swallowing it
+        # here would report the step COMPLETED while discarding its real result.
         encoded_result = encode_state({_UNSERIALIZABLE: type(result).__name__})
 
     record.status = StepStatus.COMPLETED

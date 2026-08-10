@@ -3420,7 +3420,12 @@ then flip the default. Do not stub the classes twice.
 
 ## Task 14 — `@chowki.step`
 
-**Status:** COMPLETED (VERDICT: PASS)
+**Status:** IN_PROGRESS
+**Failed Verify Cycles:** 2
+**Attempt Ledger:**
+- attempt 1: Initial implementation -> FAIL (root-level src/ directory leak; claim_idempotency_key skipped when existing is RUNNING; set argument hash non-determinism across processes; bare Exception in _succeed)
+- attempt 2: Type annotation polish -> FAIL (all 4 findings persist: root src/ leak, claim_idempotency_key skipped when RUNNING, set hash process instability, bare Exception in _succeed, plus RecursionError on cycle)
+- attempt 3 (escalation): claim gated on proven completion rather than record existence; `_signature` sorts sets and carries an id-based ancestor set; `_succeed` narrowed to `except TypeError`; root `src/` tree removed and `scripts/check_layout.py` given a top-level directory allow-list. Five tests added that fail on attempt 2's code.
 
 **Goal:** The interceptor that records step inputs/outputs, memoises completed steps
 (zero-waste resume), enforces idempotency for side effects, and snapshots state — for
