@@ -4885,6 +4885,24 @@ def pause(
 
 ## Task 20 — `chowki.resume()`: warm resume with state patching
 
+**Status:** In Progress / Unresolved (`VERDICT: FAIL` on Attempt 1)
+
+**Attempt Ledger:**
+- attempt 1: Implementation of `resume()` + fast patch & codec optimizations -> FAIL (`_try_fast_patch` mutation bug causing duplicate appends, `materialize()` in_place corruptions, `_copy_containers` shallow copy list sharing bug, `inline_blobs` process-local state bug on restart, broad `TypeError` catch in `resume()`, `msgspec.Struct` `replace()` bug on ESCALATE, two-gate pause fall-through loop in `runner.py`, `StateDict.__setitem__` discarding pre-pause writes, missing docstrings/registry notes, RFC 6902 resolution duplication).
+
+**Verifier Findings to Fix in Next Session:**
+1. **`python/chowki/src/chowki/state/delta.py:255`**: `_try_fast_patch` with `in_place=True` mutates `base` before returning `False`, then `jsonpatch` fallback re-applies the whole patch to that already mutated object (causes duplicate appends).
+2. **`python/chowki/src/chowki/state/delta.py:310`**: `materialize()` uses `in_place=True` for `patches[1:]`, so any delta containing `move`/`copy`/`test` after a simple op silently corrupts reconstructed state.
+3. **`python/chowki/src/chowki/state/pipeline.py:228`**: `_copy_containers` copies lists shallowly, so dicts inside lists are shared between returned state and `stripped_current`, making caller mutations invisible to `make_patch` (silent lost update).
+4. **`python/chowki/src/chowki/state/pipeline.py:219`**: `inline_blobs` is skipped when `BlobStore` is empty and `has_escapes` is `False`, so after a restart escaped literals load as `ref-lit:...` instead of original values.
+5. **`python/chowki/src/chowki/core/resume.py:169`**: `except TypeError: val = workflow_fn()` catches `TypeError` raised anywhere inside the resumed workflow body and re-invokes `workflow_fn()` without `run_id`, starting a fresh run and re-running completed steps.
+6. **`python/chowki/src/chowki/core/resume.py:135`**: `dataclasses.replace` is called on `run.pause` (a `msgspec.Struct`), raising `TypeError` on `ESCALATE` decisions.
+7. **`python/chowki/src/chowki/core/runner.py:245`**: `pause()` fall-through is keyed only on one resumed `step_id`, causing two-gate workflows to alternate re-pausing at the first gate instead of completing.
+8. **`python/chowki/src/chowki/core/context.py:30`**: `StateDict.__setitem__` silently discards writes to every key present at resume time, causing re-executed pre-pause code to lose its effect.
+9. **`python/chowki/src/chowki/state/delta.py:58`**: Malformed patch elements escape as `AttributeError` instead of `ChowkiStateError`.
+10. **`core/resume.py`**: Add required module and function docstrings with the R4 warning ("every side effect must live inside a `@chowki.step`").
+11. **`python/chowki/src/chowki/state/delta.py` & `codec.py`**: Clean up RFC 6902 duplication and `hash_bytes` duplication.
+
 **Goal:** ADR-004's payoff — apply a human decision plus an optional RFC 6902 patch to a
 paused run's state and continue with zero replay and zero repeated side effects.
 
