@@ -1,0 +1,96 @@
+# python/chowki/tests/unit/test_audit.py
+from __future__ import annotations
+
+from chowki.hitl.audit import AuditLog, build_audit_record
+from chowki.storage.memory import MemoryStorage
+
+
+def test_record_shape_matches_the_governance_spec() -> None:
+    rec = build_audit_record(
+        run_id="r1",
+        step_id="s#0",
+        action="EDIT",
+        actor={"platform": "slack", "user_id": "U1"},
+        original_state_hash="sha256:" + "a" * 64,
+        patched_state_hash="sha256:" + "b" * 64,
+        json_patch=[{"op": "replace", "path": "/a", "value": 1}],
+        nonce="n1",
+    )
+    assert set(rec.keys()) == {
+        "audit_id",
+        "timestamp",
+        "run_id",
+        "step_id",
+        "actor",
+        "action",
+        "original_state_hash",
+        "patched_state_hash",
+        "json_patch",
+        "verification_details",
+    }
+    details = rec["verification_details"]
+    assert isinstance(details, dict)
+    assert details["signature_verified"] is True
+    audit_id = rec["audit_id"]
+    assert isinstance(audit_id, str)
+    assert audit_id.startswith("aud_")
+
+
+def test_audit_ids_are_unique() -> None:
+    ids: set[str] = set()
+    for i in range(500):
+        rec = build_audit_record(
+            run_id="r",
+            step_id="s",
+            action="APPROVE",
+            actor={},
+            original_state_hash="h",
+            patched_state_hash="h",
+            json_patch=[],
+            nonce=str(i),
+        )
+        audit_id = rec["audit_id"]
+        assert isinstance(audit_id, str)
+        ids.add(audit_id)
+    assert len(ids) == 500
+
+
+def test_log_is_append_only_and_ordered() -> None:
+    log = AuditLog(MemoryStorage())
+    for action in ("APPROVE", "REJECT", "EDIT"):
+        log.append(
+            build_audit_record(
+                run_id="r",
+                step_id="s",
+                action=action,
+                actor={},
+                original_state_hash="h",
+                patched_state_hash="h",
+                json_patch=[],
+                nonce=action,
+            )
+        )
+    assert [r["action"] for r in log.entries(run_id="r")] == ["APPROVE", "REJECT", "EDIT"]
+    assert not hasattr(log, "delete")
+    assert not hasattr(log, "update")
+
+
+def test_secrets_never_reach_the_audit_log() -> None:
+    """A human note or patch value may contain a credential."""
+    from chowki.state.redact import Redactor
+
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
+    log = AuditLog(MemoryStorage(), redactor=Redactor(hmac_key=b"k"))
+    log.append(
+        build_audit_record(
+            run_id="r",
+            step_id="s",
+            action="EDIT",
+            actor={},
+            original_state_hash="h",
+            patched_state_hash="h",
+            json_patch=[{"op": "replace", "path": "/key", "value": secret}],
+            nonce="n",
+        )
+    )
+    assert secret not in str(log.entries(run_id="r"))

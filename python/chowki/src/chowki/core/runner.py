@@ -12,6 +12,7 @@ import structlog
 from chowki.config import ChowkiEngine, get_engine
 from chowki.core.context import RunContext, current_run, run_scope
 from chowki.errors import ChowkiConfigError, ChowkiStateError, HumanRejectedError, WorkflowPaused
+from chowki.hitl.gateway import PauseNotice
 from chowki.state.delta import Patch, apply_patch
 from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus
 
@@ -313,7 +314,28 @@ def pause(
         record.pause = pause_req
         record.updated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         ctx.engine.storage.put_run(record)
-    # wired in Task 21
+
+    notice = PauseNotice(
+        run_id=ctx.run_id,
+        workflow=ctx.workflow,
+        step_id=step_id,
+        reason=reason,
+        payload=redacted_payload,
+        permitted_actions=tuple(permitted_actions),
+        reviewers=tuple(reviewers),
+        token=token,
+        created_at_utc=pause_req.created_at_utc,
+        channel=channel,
+    )
+    gateway = ctx.engine.gateway
+    if gateway is not None:
+        try:
+            handle = gateway.notify(notice)
+            ctx.engine.storage.put_gateway_handle(ctx.run_id, handle)
+        except Exception:
+            logger = structlog.get_logger()
+            logger.exception("chowki_gateway_notify_failed", run_id=ctx.run_id, channel=channel)
+
     raise WorkflowPaused(ctx.run_id, step_id, token=token)
 
 
