@@ -97,3 +97,29 @@ def test_detector_can_be_disabled() -> None:
     d = LoopDetector(GuardrailConfig(enabled=False))
     for _ in range(100):
         d.record("search", {"q": "same"})
+
+
+def test_distinct_tools_with_same_sha256_kwargs_do_not_collide() -> None:
+    d = LoopDetector(GuardrailConfig())
+    # tool_loop_max_repeats is default 3
+    d.record("alpha", "sha256:hash1")
+    d.record("alpha", "sha256:hash1")
+    # Calling beta with same payload should not count toward alpha's repeats
+    d.record("beta", "sha256:hash1")
+    d.record("beta", "sha256:hash1")
+
+
+def test_semantic_loop_consecutive_less_than_two() -> None:
+    for val in (0, 1):
+        d = LoopDetector(GuardrailConfig(semantic_loop_consecutive=val))
+        d.record_text("hello")
+        d.record_text("world")
+
+
+def test_cycle_detection_large_acyclic_chain() -> None:
+    d = LoopDetector(GuardrailConfig())
+    # Create a chain of 1500 nodes where edges repeat twice
+    for i in range(1500):
+        src, dst = f"node_{i}", f"node_{i + 1}"
+        d.record_transition(src, dst)
+        d.record_transition(src, dst)
