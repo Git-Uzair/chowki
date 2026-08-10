@@ -8,7 +8,7 @@ Warning (R4):
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -28,7 +28,7 @@ from chowki.errors import (
 from chowki.hitl.tokens import ResumeClaims
 from chowki.state.canonical import content_hash
 from chowki.state.delta import Patch, apply_patch
-from chowki.types import Decision, JSONObject, RunRecord, RunStatus, SnapshotEnvelope
+from chowki.types import Decision, JSONObject, RunRecord, RunStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,29 +40,28 @@ class ResumeResult:
     state_hash_after: str
 
 
-def _persist_state_of_record(
-    engine: ChowkiEngine,
-    run: RunRecord,
-    snaps: Sequence[SnapshotEnvelope],
-    state: dict[str, Any],
-) -> None:
+def _persist_state_of_record(engine: ChowkiEngine, run: RunRecord, state: dict[str, Any]) -> None:
     """Write the decided state to storage as the state the run continues from.
 
-    It is written over the pause boundary's snapshot index, which is the one index the
-    re-execution never writes to: a decided gate falls through `pause()` without
-    snapshotting, while every other event owns its own ordinal. Dropping the pipeline
-    first makes the write a BASE, so `snapshots_for_resume` starts *at* the decided state
-    and every later delta chains onto it. Without this, the snapshots the decision
-    superseded stay the run's state of record, and a later gate — or a fresh process —
-    would load pre-edit values back.
+    Dropping the pipeline first makes the write a BASE, so `snapshots_for_resume` starts
+    *at* the decided state and every later delta chains onto it. Without this, the
+    snapshots the decision superseded stay the run's state of record, and a later gate --
+    or a fresh process -- would load pre-edit values back.
+
+    The index is a fresh one above every snapshot the run already has, never the pause
+    boundary's: the re-execution replays the body from the top, so a step that runs again
+    before the gate (a non-memoised step, or one whose arguments changed) writes its own
+    snapshot, and `_open_run` starts that execution's indices above this base. Reusing the
+    boundary index instead let such a write land *under* the base, leaving the deltas
+    after it diffed against a document the decision had replaced.
     """
-    boundary_index = max(e.step_index for e in snaps)
+    next_index = max((e.step_index for e in engine.storage.list_snapshots(run.run_id)), default=-1)
     engine.drop_pipeline(run.run_id)
     engine.pipeline_for(run.run_id).snapshot(
         state,
         run_id=run.run_id,
         workflow=run.workflow,
-        step_index=boundary_index,
+        step_index=next_index + 1,
     )
 
 
@@ -223,7 +222,7 @@ def resume(
     eff_engine.storage.put_run(run)
 
     if state_hash_after != state_hash_before:
-        _persist_state_of_record(eff_engine, run, snaps, state)
+        _persist_state_of_record(eff_engine, run, state)
 
     # The re-execution is seeded with the state the human reviewed, not the patched one:
     # `pause()` applies the patch when it falls through this gate, which is the point in

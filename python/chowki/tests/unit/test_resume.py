@@ -11,7 +11,7 @@ from chowki.core.decorators import step, workflow
 from chowki.core.resume import ResumeResult, resume
 from chowki.core.runner import pause
 from chowki.errors import HumanRejectedError, WorkflowPaused
-from chowki.types import Decision, JSONObject, JSONValue, RunStatus
+from chowki.types import Decision, JSONObject, JSONValue, RunStatus, SnapshotKind
 
 
 def probe_state_of_record(engine: ChowkiEngine, run_id: str) -> JSONValue:
@@ -529,6 +529,72 @@ def test_replayed_pre_pause_writes_are_not_discarded(engine: ChowkiEngine) -> No
     )
 
     assert observed[-1] == {"attempt": 2, "proposal": {}}
+
+
+def test_a_replayed_step_cannot_overwrite_the_decided_state(engine: ChowkiEngine) -> None:
+    """A resumed run must not write a snapshot at an index the decision already owns.
+
+    The step before the first gate is called with a changing argument, so it re-executes
+    on every resume and snapshots again *before* the gate. If snapshot indices were reused
+    by the replay, that write would land under the base holding the human's decision and
+    the chain after it would no longer apply to it.
+    """
+    pad: JSONObject = {f"k{i}": i for i in range(200)}
+    attempts: list[int] = []
+
+    @step
+    def prepare(nonce: int) -> JSONObject:
+        attempts.append(nonce)
+        return {"amount": 5000, "keep": "k"}
+
+    @workflow(engine=engine)
+    def two_gates() -> str:
+        state = current_run().state
+        state["pad"] = pad
+        state["a"] = prepare(len(attempts) + 1)
+        pause(reason="gate1", permitted_actions=("APPROVE", "REJECT", "EDIT"))
+        state["mid"] = "mid"
+        pause(reason="gate2", permitted_actions=("APPROVE", "REJECT"))
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as exc1:
+        two_gates(run_id="r_idx")
+    token1 = exc1.value.token
+    assert token1 is not None
+
+    before = {e.step_index: e.state_hash for e in engine.storage.list_snapshots("r_idx")}
+
+    with pytest.raises(WorkflowPaused) as exc2:
+        resume(
+            run_id="r_idx",
+            token=token1,
+            decision=Decision.EDIT,
+            patch=[{"op": "remove", "path": "/a/amount"}],
+            workflow_fn=two_gates,
+            engine=engine,
+        )
+    token2 = exc2.value.token
+    assert token2 is not None
+
+    decided: JSONObject = {"pad": pad, "a": {"keep": "k"}, "mid": "mid"}
+    # A cold load: the persisted chain alone has to reconstruct the decided state.
+    assert probe_state_of_record(engine, "r_idx") == decided
+
+    snaps = engine.storage.snapshots_for_resume("r_idx")
+    assert snaps[0].kind is SnapshotKind.BASE
+    assert snaps[-1].kind is SnapshotKind.DELTA, "the padded state must keep the tail a delta"
+    after = {e.step_index: e.state_hash for e in engine.storage.list_snapshots("r_idx")}
+    assert {i: after.get(i) for i in before} == before, "the replay overwrote an earlier snapshot"
+
+    res = resume(
+        run_id="r_idx",
+        token=token2,
+        decision=Decision.APPROVE,
+        workflow_fn=two_gates,
+        engine=engine,
+    )
+    assert res.value == "done"
+    assert probe_state_of_record(engine, "r_idx") == decided
 
 
 def test_a_human_edit_survives_a_later_gate(engine: ChowkiEngine) -> None:

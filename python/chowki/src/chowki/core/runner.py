@@ -49,13 +49,11 @@ def _open_run(
     engine.storage.put_run(record)
 
     try:
+        # Snapshot indices continue above everything already stored, while ordinals
+        # restart at 0 so the replay reproduces the same step and gate ids. Sharing one
+        # counter would make a replayed ordinal overwrite the snapshot it first wrote.
         all_snapshots = engine.storage.list_snapshots(rid)
-        all_steps = engine.storage.list_steps(rid)
-        max_snap_idx = max((e.step_index for e in all_snapshots), default=-1)
-        max_step_ord = max((s.ordinal for s in all_steps), default=-1)
-        start_ordinal = (
-            0 if rid in engine.pending_resume_state else max(max_snap_idx, max_step_ord) + 1
-        )
+        start_snapshot_index = max((e.step_index for e in all_snapshots), default=-1) + 1
 
         snaps = engine.storage.snapshots_for_resume(rid)
         state: dict[str, Any] = {}
@@ -93,7 +91,7 @@ def _open_run(
             resuming=resuming,
             resumed_step_ids=resumed_step_ids,
             resumed_patches=resumed_patches,
-            _ordinal=start_ordinal,
+            _snapshot_index=start_snapshot_index,
         )
         ctx.loops.reset()
         return ctx, record
@@ -125,7 +123,7 @@ def _close_run(
                 ctx.state,
                 run_id=ctx.run_id,
                 workflow=ctx.workflow,
-                step_index=ctx.next_ordinal(),
+                step_index=ctx.next_snapshot_index(),
             )
         except BaseException as snap_err:
             snapshot_exc = snap_err
@@ -290,7 +288,7 @@ def pause(
         ctx.state,
         run_id=ctx.run_id,
         workflow=ctx.workflow,
-        step_index=ordinal,
+        step_index=ctx.next_snapshot_index(),
     )
     pause_req = PauseRequest(
         step_id=step_id,
