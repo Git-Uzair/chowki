@@ -98,7 +98,12 @@ class TokenIssuer:
         expected_sig_bytes = hmac.new(self._secret, body.encode("utf-8"), hashlib.sha256).digest()
         expected_sig = _b64encode_unpadded(expected_sig_bytes)
 
-        if not hmac.compare_digest(sig, expected_sig):
+        try:
+            is_valid = hmac.compare_digest(sig, expected_sig)
+        except (TypeError, ValueError):
+            is_valid = False
+
+        if not is_valid:
             raise InvalidResumeToken("signature mismatch")
 
         try:

@@ -44,6 +44,14 @@ def test_tampering_with_the_payload_is_rejected(issuer: TokenIssuer) -> None:
         issuer.verify(forged, action="APPROVE")
 
 
+def test_non_ascii_signature_segment_raises_invalid_token(issuer: TokenIssuer) -> None:
+    token = issuer.issue(run_id="r1", step_id="s#0", permitted_actions=("APPROVE",))
+    body, _ = token.rsplit(".", 1)
+    forged = body + ".bädsigñature"
+    with pytest.raises(InvalidResumeToken):
+        issuer.verify(forged, action="APPROVE")
+
+
 def test_a_token_from_another_secret_is_rejected() -> None:
     a = TokenIssuer(secret=SECRET, storage=MemoryStorage())
     b = TokenIssuer(secret=b"different-secret-of-sufficient-len", storage=MemoryStorage())
