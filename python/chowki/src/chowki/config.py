@@ -16,7 +16,7 @@ from chowki.state.redact import Redactor
 from chowki.storage import DEFAULT_DB_PATH, SQLiteStorage, StorageAdapter
 
 if TYPE_CHECKING:
-    from chowki.hitl.gateway import ChannelGateway  # type: ignore[import-not-found]
+    from chowki.hitl.gateway import ChannelGateway
 
 #: Slot name (not a credential) under which the store keeps the resume HMAC bytes.
 _RESUME_SLOT: Final[str] = "resume"
@@ -62,6 +62,7 @@ class ChowkiEngine:
             hmac_key=self._config.redaction_hmac_key or os.urandom(32)
         )
         self.blobs: BlobStore = BlobStore()
+        self.gateway: ChannelGateway | None = self._config.gateway
         self._pipelines: dict[str, SnapshotPipeline] = {}
         self.pending_resume_state: dict[str, tuple[str, dict[str, Any]]] = {}
 

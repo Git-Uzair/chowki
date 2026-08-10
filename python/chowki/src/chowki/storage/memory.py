@@ -4,7 +4,7 @@ import copy
 import os
 import threading
 from datetime import UTC, datetime
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import msgspec
 
@@ -12,6 +12,9 @@ from chowki.errors import ChowkiStorageError
 from chowki.state.blobs import make_blob_ref
 from chowki.storage.base import SECRET_BYTES
 from chowki.types import RunRecord, RunStatus, SnapshotEnvelope, SnapshotKind, StepRecord
+
+if TYPE_CHECKING:
+    from chowki.hitl.gateway import GatewayHandle
 
 
 class MemoryStorage:
@@ -26,6 +29,7 @@ class MemoryStorage:
         self._nonces: dict[str, float] = {}
         self._blobs: dict[str, bytes] = {}
         self._audit: list[dict[str, object]] = []
+        self._gateway_handles: dict[str, GatewayHandle] = {}
 
     def _check_closed(self) -> None:
         if self._closed:
@@ -155,6 +159,17 @@ class MemoryStorage:
                 for r in self._audit
                 if isinstance(r.get("run_id"), str) and r.get("run_id") == run_id
             ]
+
+    def put_gateway_handle(self, run_id: str, handle: GatewayHandle) -> None:
+        with self._lock:
+            self._check_closed()
+            self._gateway_handles[run_id] = copy.deepcopy(handle)
+
+    def get_gateway_handle(self, run_id: str) -> GatewayHandle | None:
+        with self._lock:
+            self._check_closed()
+            res = self._gateway_handles.get(run_id)
+            return copy.deepcopy(res) if res is not None else None
 
     def close(self) -> None:
         with self._lock:

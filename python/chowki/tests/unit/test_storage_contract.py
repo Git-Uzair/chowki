@@ -244,3 +244,13 @@ def test_audit_list_filter_ignores_non_string_run_id(
     matched = store.list_audit(run_id="42")
     assert len(matched) == 1
     assert matched[0]["run_id"] == "42"
+
+
+def test_gateway_handle_roundtrip(store: StorageAdapter) -> None:
+    from chowki.hitl.gateway import GatewayHandle
+
+    handle = GatewayHandle(channel="slack", message_id="1234.5678", conversation_id="C123")
+    store.put_gateway_handle("r1", handle)
+    got = store.get_gateway_handle("r1")
+    assert got == handle
+    assert store.get_gateway_handle("missing") is None

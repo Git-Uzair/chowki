@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Final, Protocol
+from typing import TYPE_CHECKING, Final, Protocol
 
 from chowki.types import RunRecord, RunStatus, SnapshotEnvelope, StepRecord
+
+if TYPE_CHECKING:
+    from chowki.hitl.gateway import GatewayHandle
 
 #: Width of the secrets adapters mint for :meth:`StorageAdapter.get_or_create_secret`.
 SECRET_BYTES: Final[int] = 32
@@ -40,5 +43,9 @@ class StorageAdapter(Protocol):
     def append_audit(self, record: dict[str, object]) -> None: ...
 
     def list_audit(self, *, run_id: str | None = None) -> list[dict[str, object]]: ...
+
+    def put_gateway_handle(self, run_id: str, handle: GatewayHandle) -> None: ...
+
+    def get_gateway_handle(self, run_id: str) -> GatewayHandle | None: ...
 
     def close(self) -> None: ...

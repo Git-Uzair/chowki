@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import uuid4
 
+import structlog
 from msgspec.structs import replace as msgspec_replace
 
 from chowki.config import ChowkiEngine, get_engine
@@ -25,6 +24,7 @@ from chowki.errors import (
     ReplayedNonceError,
     WorkflowPaused,
 )
+from chowki.hitl.audit import AuditLog, build_audit_record
 from chowki.hitl.tokens import ResumeClaims
 from chowki.state.canonical import content_hash
 from chowki.state.delta import Patch, apply_patch
@@ -74,6 +74,20 @@ def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any:
         if "unexpected keyword argument" in str(exc) or "run_id" in str(exc):
             return workflow_fn()
         raise
+
+
+def _confirm_gateway(
+    engine: ChowkiEngine, run_id: str, decision: Decision, actor: JSONObject | None
+) -> None:
+    gateway = engine.gateway
+    if gateway is not None:
+        handle = engine.storage.get_gateway_handle(run_id)
+        if handle is not None:
+            try:
+                gateway.confirm(handle, decision, actor=actor)
+            except Exception:
+                logger = structlog.get_logger()
+                logger.exception("chowki_gateway_confirm_failed", run_id=run_id)
 
 
 def resume(
@@ -131,27 +145,22 @@ def resume(
     reviewed: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
     state: dict[str, Any] = reviewed
     state_hash_before = content_hash(reviewed)
+    audit_log = AuditLog(eff_engine.storage, redactor=eff_engine.redactor)
 
     if decision is Decision.REJECT:
-        audit_record: dict[str, Any] = {
-            "audit_id": f"aud_{uuid4().hex[:16]}",
-            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "run_id": run_id,
-            "step_id": claims.step_id,
-            "actor": actor or {},
-            "action": decision.value,
-            "original_state_hash": state_hash_before,
-            "patched_state_hash": state_hash_before,
-            "json_patch": [],
-            "verification_details": {
-                "signature_type": "chowki_hmac_sha256",
-                "nonce": claims.nonce,
-                "signature_verified": True,
-            },
-        }
-        if note:
-            audit_record["note"] = note
-        eff_engine.storage.append_audit(audit_record)
+        audit_record = build_audit_record(
+            run_id=run_id,
+            step_id=claims.step_id,
+            action=decision.value,
+            actor=actor,
+            original_state_hash=state_hash_before,
+            patched_state_hash=state_hash_before,
+            json_patch=[],
+            nonce=claims.nonce,
+            note=note,
+        )
+        audit_log.append(audit_record)
+        _confirm_gateway(eff_engine, run_id, decision, actor)
         run.status = RunStatus.REJECTED
         eff_engine.storage.put_run(run)
         eff_engine.drop_pipeline(run_id)
@@ -169,25 +178,19 @@ def resume(
             step_id=claims.step_id,
             permitted_actions=permitted,
         )
-        audit_record = {
-            "audit_id": f"aud_{uuid4().hex[:16]}",
-            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "run_id": run_id,
-            "step_id": claims.step_id,
-            "actor": actor or {},
-            "action": decision.value,
-            "original_state_hash": state_hash_before,
-            "patched_state_hash": state_hash_before,
-            "json_patch": patch or [],
-            "verification_details": {
-                "signature_type": "chowki_hmac_sha256",
-                "nonce": claims.nonce,
-                "signature_verified": True,
-            },
-        }
-        if note:
-            audit_record["note"] = note
-        eff_engine.storage.append_audit(audit_record)
+        audit_record = build_audit_record(
+            run_id=run_id,
+            step_id=claims.step_id,
+            action=decision.value,
+            actor=actor,
+            original_state_hash=state_hash_before,
+            patched_state_hash=state_hash_before,
+            json_patch=patch or [],
+            nonce=claims.nonce,
+            note=note,
+        )
+        audit_log.append(audit_record)
+        _confirm_gateway(eff_engine, run_id, decision, actor)
         if current_pause is not None:
             rev_val = actor.get("reviewers") if actor is not None else None
             revs = tuple(rev_val) if isinstance(rev_val, list) else current_pause.reviewers
@@ -197,25 +200,19 @@ def resume(
 
     state_hash_after = content_hash(state)
 
-    audit_record = {
-        "audit_id": f"aud_{uuid4().hex[:16]}",
-        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "run_id": run_id,
-        "step_id": claims.step_id,
-        "actor": actor or {},
-        "action": decision.value,
-        "original_state_hash": state_hash_before,
-        "patched_state_hash": state_hash_after,
-        "json_patch": patch or [],
-        "verification_details": {
-            "signature_type": "chowki_hmac_sha256",
-            "nonce": claims.nonce,
-            "signature_verified": True,
-        },
-    }
-    if note:
-        audit_record["note"] = note
-    eff_engine.storage.append_audit(audit_record)
+    audit_record = build_audit_record(
+        run_id=run_id,
+        step_id=claims.step_id,
+        action=decision.value,
+        actor=actor,
+        original_state_hash=state_hash_before,
+        patched_state_hash=state_hash_after,
+        json_patch=patch or [],
+        nonce=claims.nonce,
+        note=note,
+    )
+    audit_log.append(audit_record)
+    _confirm_gateway(eff_engine, run_id, decision, actor)
 
     run.pause = None
     run.status = RunStatus.RUNNING

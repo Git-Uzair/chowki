@@ -10,6 +10,7 @@ from typing import Final, cast
 import msgspec
 
 from chowki.errors import ChowkiStorageError
+from chowki.hitl.gateway import GatewayHandle
 from chowki.state.blobs import make_blob_ref
 from chowki.state.codec import decode_struct, encode_struct
 from chowki.storage.base import SECRET_BYTES
@@ -69,6 +70,11 @@ CREATE TABLE IF NOT EXISTS nonces (
 CREATE TABLE IF NOT EXISTS audit (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT,
+    blob BLOB
+);
+
+CREATE TABLE IF NOT EXISTS gateway_handles (
+    run_id TEXT PRIMARY KEY,
     blob BLOB
 );
 """
@@ -311,6 +317,28 @@ class SQLiteStorage:
             return [
                 cast(dict[str, object], msgspec.msgpack.decode(row[0])) for row in cur.fetchall()
             ]
+
+    def put_gateway_handle(self, run_id: str, handle: GatewayHandle) -> None:
+        blob = encode_struct(handle)
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                """
+                INSERT INTO gateway_handles (run_id, blob)
+                VALUES (?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET blob=excluded.blob
+                """,
+                (run_id, blob),
+            )
+
+    def get_gateway_handle(self, run_id: str) -> GatewayHandle | None:
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.execute("SELECT blob FROM gateway_handles WHERE run_id = ?", (run_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return decode_struct(row[0], GatewayHandle)
 
     def close(self) -> None:
         with self._lock:
