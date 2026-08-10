@@ -17,7 +17,7 @@ from typing import Any, Final, ParamSpec, TypeVar, cast, overload
 import structlog
 
 from chowki.core.context import RunContext, current_run, in_run
-from chowki.core.runner import workflow
+from chowki.core.runner import pause, workflow
 from chowki.errors import ChowkiStorageError, HumanRejectedError, WorkflowPaused, classify
 from chowki.guardrails.breaker import AnomalyBreaker, BreakerAction
 from chowki.state.canonical import content_hash
@@ -334,4 +334,4 @@ def step(
     return decorator
 
 
-__all__ = ["step", "workflow"]
+__all__ = ["pause", "step", "workflow"]
