@@ -31,6 +31,19 @@ REQUIRED_FILES = [
     "scripts/check_layout.py",
 ]
 
+#: The only non-dot directories allowed at the repo root (ADR-001, AGENTS.md section 3).
+#: A language source tree such as ``src/`` appearing here means a package was written to
+#: the wrong relative path; every other rule in this file happily walks such a tree and
+#: reports success, so the root has to be allow-listed explicitly.
+ALLOWED_ROOT_DIRS = {
+    "docs",
+    "examples",
+    "node",
+    "python",
+    "scripts",
+    "spec",
+}
+
 EXCLUDED_DIR_NAMES = {
     ".git",
     ".kilo",
@@ -114,6 +127,13 @@ def main() -> int:
     for rel in REQUIRED_FILES:
         if not (ROOT / rel).is_file():
             failures.append(f"missing file: {rel}")
+
+    for entry in sorted(ROOT.iterdir()):
+        name = entry.name
+        if not entry.is_dir() or name.startswith(".") or name.endswith(".egg-info"):
+            continue
+        if name not in ALLOWED_ROOT_DIRS and name not in EXCLUDED_DIR_NAMES:
+            failures.append(f"unexpected top-level directory: {name}")
 
     for path in ROOT.rglob("*"):
         rel_path = path.relative_to(ROOT)

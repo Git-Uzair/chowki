@@ -1,11 +1,58 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import pytest
 
 from chowki.config import ChowkiEngine
 from chowki.core.context import RunContext, run_scope
 from chowki.core.decorators import step
+from chowki.errors import ChowkiStorageError
 from chowki.types import StepStatus
+
+#: Wire constant written into a step record whose result cannot be encoded.
+UNSERIALIZABLE_MARKER = "__chowki_unserializable__"
+
+#: Runs one step with a ``set`` argument in a fresh interpreter and prints its args_hash.
+#: Set iteration order is salted by PYTHONHASHSEED, so this is the only way to prove the
+#: resume key survives a process restart.
+_ARGS_HASH_PROBE = """
+from chowki.config import ChowkiConfig, ChowkiEngine
+from chowki.core.context import RunContext, run_scope
+from chowki.core.decorators import step
+from chowki.storage.memory import MemoryStorage
+
+
+@step
+def fanout(tags):
+    return len(tags)
+
+
+engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage()))
+ctx = RunContext(run_id="p", workflow="w", engine=engine)
+with run_scope(ctx):
+    fanout({"alpha", "beta", "gamma", "delta", "epsilon", "zeta"})
+record = engine.storage.get_step("p", "fanout#0")
+print(record.args_hash)
+"""
+
+
+class _Interrupted(BaseException):
+    """Stands in for a process death mid-step: a BaseException the wrapper must not record."""
+
+
+def _args_hash_under_seed(seed: str) -> str:
+    env = {**os.environ, "PYTHONHASHSEED": seed}
+    proc = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _ARGS_HASH_PROBE],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    return proc.stdout.strip()
 
 
 @pytest.fixture
@@ -173,6 +220,90 @@ def test_unserializable_results_do_not_break_the_run(ctx: RunContext) -> None:
     replay = RunContext(run_id="r1", workflow="demo", engine=ctx.engine, resuming=True)
     with run_scope(replay):
         assert isinstance(make(), Opaque)
+
+
+def test_set_arguments_hash_identically_in_a_fresh_process() -> None:
+    """The resume key must not move when PYTHONHASHSEED reorders a set argument."""
+    assert _args_hash_under_seed("1") == _args_hash_under_seed("424242")
+
+
+def test_self_referential_arguments_do_not_recurse(ctx: RunContext) -> None:
+    """A cyclic argument must degrade to a marker, not blow the Python stack."""
+    cycle: list[object] = []
+    cycle.append(cycle)
+
+    @step
+    def consume(value: list[object]) -> int:
+        return len(value)
+
+    with run_scope(ctx):
+        assert consume(cycle) == 1
+
+    rec = ctx.engine.storage.get_step("r1", "consume#0")
+    assert rec is not None
+    assert rec.status is StepStatus.COMPLETED
+
+
+def test_idempotent_step_is_not_re_entered_after_an_unfinished_attempt(ctx: RunContext) -> None:
+    """A RUNNING record proves the side effect started, not that it finished.
+
+    Re-entering it would risk sending the same email twice, so the deterministic
+    idempotency key must be claimed again and the duplicate claim must be refused.
+    """
+    calls: list[int] = []
+
+    @step(idempotent=True)
+    def send() -> str:
+        calls.append(1)
+        raise _Interrupted  # the process dies mid-side-effect
+
+    with run_scope(ctx), pytest.raises(_Interrupted):
+        send()
+
+    interrupted = ctx.engine.storage.get_step("r1", "send#0")
+    assert interrupted is not None
+    assert interrupted.status is StepStatus.RUNNING
+
+    replay = RunContext(run_id="r1", workflow="demo", engine=ctx.engine, resuming=True)
+    with run_scope(replay), pytest.raises(ChowkiStorageError):
+        send()
+    assert calls == [1]
+
+
+def test_an_unencodable_result_is_not_silently_swallowed(ctx: RunContext) -> None:
+    """Only ``TypeError`` means "no encoding exists"; an out-of-range int is a defect.
+
+    Masking it behind the unserialisable marker would report the step COMPLETED while
+    throwing the real result away, so the encoder error must surface.
+    """
+
+    @step
+    def too_big() -> int:
+        return 2**64  # one past msgpack's uint64 ceiling
+
+    with run_scope(ctx), pytest.raises(OverflowError):
+        too_big()
+
+    rec = ctx.engine.storage.get_step("r1", "too_big#0")
+    assert rec is not None
+    assert rec.status is not StepStatus.COMPLETED
+    assert rec.result is None
+
+
+def test_a_marker_result_still_reports_the_type(ctx: RunContext) -> None:
+    class Opaque:
+        pass
+
+    @step
+    def make() -> Opaque:
+        return Opaque()
+
+    with run_scope(ctx):
+        make()
+
+    rec = ctx.engine.storage.get_step("r1", "make#0")
+    assert rec is not None and rec.result is not None
+    assert UNSERIALIZABLE_MARKER.encode() in rec.result
 
 
 def test_decorator_preserves_metadata_and_signature() -> None:
