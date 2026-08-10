@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Any, ParamSpec, TypeVar, cast, overload
+from typing import Any, NoReturn, ParamSpec, TypeVar, cast, overload
 from uuid import uuid4
 
 import structlog
 
 from chowki.config import ChowkiEngine, get_engine
-from chowki.core.context import RunContext, run_scope
+from chowki.core.context import RunContext, current_run, run_scope
 from chowki.errors import ChowkiConfigError, HumanRejectedError, WorkflowPaused
-from chowki.types import RunRecord, RunStatus
+from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -209,6 +209,39 @@ def workflow(
     if callable(func):
         return decorator(func)
     return decorator
+
+
+def pause(
+    *,
+    reason: str,
+    payload: JSONObject | None = None,
+    permitted_actions: Sequence[str] = ("APPROVE", "REJECT"),
+    reviewers: Sequence[str] = (),
+    channel: str = "console",
+) -> NoReturn:
+    """Suspend a run at a step boundary and mint a scope-bound, single-use resume token."""
+    ctx = current_run()
+    redacted_payload = (
+        cast(JSONObject, ctx.engine.redactor.redact(payload)) if payload is not None else {}
+    )
+    step_id = f"pause#{ctx.next_ordinal()}"
+    pause_req = PauseRequest(
+        step_id=step_id,
+        reason=reason,
+        permitted_actions=tuple(permitted_actions),
+        payload=redacted_payload,
+        reviewers=tuple(reviewers),
+        channel=channel,
+        created_at_utc=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    )
+    token = ctx.engine.tokens.issue(
+        run_id=ctx.run_id,
+        step_id=step_id,
+        permitted_actions=permitted_actions,
+    )
+    ctx.pause = pause_req
+    # wired in Task 21
+    raise WorkflowPaused(ctx.run_id, step_id, token=token)
 
 
 def resumable_runs(engine: ChowkiEngine) -> list[RunRecord]:

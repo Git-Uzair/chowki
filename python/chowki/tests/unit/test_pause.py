@@ -1,0 +1,67 @@
+# python/chowki/tests/unit/test_pause.py
+from __future__ import annotations
+
+import pytest
+
+from chowki.config import ChowkiEngine
+from chowki.core.decorators import workflow
+from chowki.core.runner import pause
+from chowki.errors import WorkflowPaused
+from chowki.types import RunStatus
+
+
+def test_pause_suspends_the_run_and_persists_the_request(engine: ChowkiEngine) -> None:
+    @workflow(engine=engine)
+    def pipeline() -> None:
+        pause(
+            reason="approve the transfer",
+            payload={"amount": 5000},
+            permitted_actions=("APPROVE", "REJECT", "EDIT"),
+        )
+        raise AssertionError("must not be reached")
+
+    with pytest.raises(WorkflowPaused) as excinfo:
+        pipeline(run_id="r1")
+
+    assert excinfo.value.run_id == "r1"
+    assert excinfo.value.token
+
+    run = engine.storage.get_run("r1")
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+    assert run.pause is not None
+    assert run.pause.payload == {"amount": 5000}
+    assert run.pause.permitted_actions == ("APPROVE", "REJECT", "EDIT")
+
+
+def test_pause_snapshots_state_before_suspending(engine: ChowkiEngine) -> None:
+    from chowki.core.context import current_run
+
+    @workflow(engine=engine)
+    def pipeline() -> None:
+        current_run().state["draft"] = "ready"
+        pause(reason="review")
+
+    with pytest.raises(WorkflowPaused):
+        pipeline(run_id="r2")
+    assert engine.storage.list_snapshots("r2")
+
+
+def test_pause_redacts_the_payload(engine: ChowkiEngine) -> None:
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
+
+    @workflow(engine=engine)
+    def pipeline() -> None:
+        pause(reason="review", payload={"token": secret})
+
+    with pytest.raises(WorkflowPaused):
+        pipeline(run_id="r3")
+
+    run = engine.storage.get_run("r3")
+    assert run is not None and run.pause is not None
+    assert secret not in str(run.pause.payload)
+
+
+def test_pause_outside_a_workflow_is_an_error() -> None:
+    with pytest.raises(LookupError):
+        pause(reason="nope")
