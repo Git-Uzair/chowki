@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import functools
 import hashlib
 import hmac
 import inspect
 import math
+import time
 import traceback
 import unicodedata
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Final, ParamSpec, TypeVar, cast, overload
 
@@ -15,7 +18,8 @@ import structlog
 
 from chowki.core.context import RunContext, current_run, in_run
 from chowki.core.runner import workflow
-from chowki.errors import ChowkiStorageError, classify
+from chowki.errors import ChowkiStorageError, HumanRejectedError, WorkflowPaused, classify
+from chowki.guardrails.breaker import AnomalyBreaker, BreakerAction
 from chowki.state.canonical import content_hash
 from chowki.state.codec import decode_state, encode_state
 from chowki.types import JSONValue, StepError, StepRecord, StepStatus
@@ -173,7 +177,6 @@ def _succeed(
 
     record.status = StepStatus.COMPLETED
     record.ended_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    record.attempts += 1
     record.result = encoded_result
     record.result_replayable = replayable
 
@@ -196,7 +199,6 @@ def _fail(
 ) -> None:
     record.status = StepStatus.FAILED
     record.ended_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    record.attempts += 1
     record.error = StepError(
         error_class=classify(exc).value,
         message=str(exc),
@@ -204,6 +206,28 @@ def _fail(
     )
     ctx.step_records[record.step_id] = record
     ctx.engine.storage.put_step(record)
+
+
+def _get_breaker(ctx: RunContext, retries: int | None) -> AnomalyBreaker:
+    if retries is not None:
+        cfg = replace(ctx.engine.config.guardrails, max_auto_retries=retries)
+    else:
+        cfg = ctx.engine.config.guardrails
+    return AnomalyBreaker(cfg)
+
+
+def _handle_step_exception(
+    ctx: RunContext,
+    record: StepRecord,
+    exc: Exception,
+    breaker: AnomalyBreaker,
+    attempt: int,
+) -> BreakerAction:
+    action = breaker.decide(exc, attempt=attempt)
+    if action is not BreakerAction.RETRY:
+        exc.chowki_action = action  # type: ignore[attr-defined]
+        _fail(ctx, record, exc)
+    return action
 
 
 @overload
@@ -228,7 +252,11 @@ def step(
     snapshot: bool = True,
     retries: int | None = None,
 ) -> Any:
-    """Interceptor for step memoisation, idempotency, and state snapshotting."""
+    """Interceptor for step memoisation, idempotency, snapshotting, and breaker retries.
+
+    REASK and SUMMARIZE decisions are attached to the raised exception as
+    `exc.chowki_action = action` and re-raised for higher-level wrappers or applications.
+    """
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
         step_name = name or fn.__name__
@@ -244,14 +272,25 @@ def step(
                 rec, memoised = _begin(ctx, step_name, args, kwargs, idempotent)
                 if memoised is not _MISSING:
                     return cast(R, memoised)
-                try:
-                    res = await fn(*args, **kwargs)
-                except Exception as exc:
-                    _fail(ctx, rec, exc)
-                    raise
-                else:
-                    _succeed(ctx, rec, res, snapshot)
-                    return cast(R, res)
+
+                breaker = _get_breaker(ctx, retries)
+                initial_attempts = rec.attempts
+                attempt = 0
+                while True:
+                    rec.attempts = initial_attempts + attempt + 1
+                    try:
+                        res = await fn(*args, **kwargs)
+                        _succeed(ctx, rec, res, snapshot)
+                        return cast(R, res)
+                    except (WorkflowPaused, HumanRejectedError):
+                        raise
+                    except Exception as exc:
+                        action = _handle_step_exception(ctx, rec, exc, breaker, attempt)
+                        if action is BreakerAction.RETRY:
+                            await asyncio.sleep(breaker.backoff_seconds(attempt))
+                            attempt += 1
+                            continue
+                        raise
 
             return cast(Callable[P, R], async_wrapper)
         else:
@@ -264,14 +303,25 @@ def step(
                 rec, memoised = _begin(ctx, step_name, args, kwargs, idempotent)
                 if memoised is not _MISSING:
                     return cast(R, memoised)
-                try:
-                    res = fn(*args, **kwargs)
-                except Exception as exc:
-                    _fail(ctx, rec, exc)
-                    raise
-                else:
-                    _succeed(ctx, rec, res, snapshot)
-                    return res
+
+                breaker = _get_breaker(ctx, retries)
+                initial_attempts = rec.attempts
+                attempt = 0
+                while True:
+                    rec.attempts = initial_attempts + attempt + 1
+                    try:
+                        res = fn(*args, **kwargs)
+                        _succeed(ctx, rec, res, snapshot)
+                        return res
+                    except (WorkflowPaused, HumanRejectedError):
+                        raise
+                    except Exception as exc:
+                        action = _handle_step_exception(ctx, rec, exc, breaker, attempt)
+                        if action is BreakerAction.RETRY:
+                            time.sleep(breaker.backoff_seconds(attempt))
+                            attempt += 1
+                            continue
+                        raise
 
             return sync_wrapper
 

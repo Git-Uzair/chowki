@@ -436,3 +436,45 @@ def test_decorator_preserves_metadata_and_signature() -> None:
     assert documented.__name__ == "documented"
     assert documented.__doc__ == "Docstring survives."
     assert cast(Any, documented).__wrapped__ is not None
+
+
+def test_step_retries_a_rate_limit_then_succeeds(ctx: RunContext) -> None:
+    from dataclasses import replace
+
+    from chowki.errors import RateLimitError
+
+    ctx.engine.config.guardrails = replace(
+        ctx.engine.config.guardrails, retry_base_seconds=0.001, retry_max_seconds=0.01
+    )
+
+    attempts: list[int] = []
+
+    @step
+    def flaky() -> str:
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise RateLimitError("429")
+        return "ok"
+
+    with run_scope(ctx):
+        assert flaky() == "ok"
+
+    rec = ctx.engine.storage.get_step("r1", "flaky#0")
+    assert rec is not None
+    assert rec.attempts == 3
+    assert rec.status is StepStatus.COMPLETED
+
+
+def test_step_does_not_retry_a_loop_detection(ctx: RunContext) -> None:
+    from chowki.errors import InfiniteLoopDetected
+
+    attempts: list[int] = []
+
+    @step
+    def looping() -> None:
+        attempts.append(1)
+        raise InfiniteLoopDetected("cycle")
+
+    with run_scope(ctx), pytest.raises(InfiniteLoopDetected):
+        looping()
+    assert len(attempts) == 1
