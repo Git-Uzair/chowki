@@ -10,8 +10,9 @@ from uuid import uuid4
 import structlog
 
 from chowki.config import ChowkiEngine, get_engine
-from chowki.core.context import RunContext, StateDict, current_run, run_scope
-from chowki.errors import ChowkiConfigError, HumanRejectedError, WorkflowPaused
+from chowki.core.context import RunContext, current_run, run_scope
+from chowki.errors import ChowkiConfigError, ChowkiStateError, HumanRejectedError, WorkflowPaused
+from chowki.state.delta import Patch, apply_patch
 from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus
 
 P = ParamSpec("P")
@@ -60,19 +61,25 @@ def _open_run(
         state: dict[str, Any] = {}
         resumed_step_ids: set[str] = set()
 
+        # The audit log, not this process, is the record of which gates a human has
+        # already decided and what they changed: a run resumed twice, or resumed after a
+        # restart, has to fall through every earlier gate and re-apply every earlier edit.
+        resumed_patches: dict[str, Patch] = {}
         audits = engine.storage.list_audit(run_id=rid)
         for a in audits:
-            if a.get("action") in ("APPROVE", "EDIT"):
-                sid = a.get("step_id")
-                if isinstance(sid, str):
-                    resumed_step_ids.add(sid)
+            action = a.get("action")
+            sid = a.get("step_id")
+            if action not in ("APPROVE", "EDIT") or not isinstance(sid, str):
+                continue
+            resumed_step_ids.add(sid)
+            ops = a.get("json_patch")
+            if action == "EDIT" and isinstance(ops, list) and ops:
+                resumed_patches.setdefault(sid, []).extend(cast(Patch, ops))
 
         if rid in engine.pending_resume_state:
             res_step_id, pending_state = engine.pending_resume_state.pop(rid)
             resumed_step_ids.add(res_step_id)
-            state = (
-                pending_state if isinstance(pending_state, StateDict) else StateDict(pending_state)
-            )
+            state = pending_state
         elif resuming and snaps:
             loaded = engine.pipeline_for(rid).load(snaps)
             if isinstance(loaded, dict):
@@ -85,6 +92,7 @@ def _open_run(
             state=state,
             resuming=resuming,
             resumed_step_ids=resumed_step_ids,
+            resumed_patches=resumed_patches,
             _ordinal=start_ordinal,
         )
         ctx.loops.reset()
@@ -252,10 +260,25 @@ def pause(
     step_id = f"pause#{ordinal}"
 
     if step_id in ctx.resumed_step_ids:
+        # A human already decided this gate, so fall through it instead of suspending
+        # again -- and re-apply their patch here, at the gate, because this is the point
+        # in the body where the decision was made. The live state at this point is the
+        # replay of the state the human reviewed, so applying the recorded patch
+        # reproduces the state they decided on, deletions included, and it does so at
+        # every later gate and every later resume: the patch is read from the audit log,
+        # not carried in this process.
         ctx.resumed_step_ids.remove(step_id)
         ctx.pause = None
-        if isinstance(ctx.state, StateDict):
-            ctx.state.unfreeze()
+        gate_patch = ctx.resumed_patches.get(step_id)
+        if gate_patch:
+            patched = apply_patch(ctx.state, gate_patch)
+            if not isinstance(patched, dict):
+                raise ChowkiStateError(
+                    f"human patch for {step_id} of run {ctx.run_id} replaced the state root "
+                    f"with {type(patched).__name__}; chowki state must stay a JSON object"
+                )
+            ctx.state.clear()
+            ctx.state.update(cast(JSONObject, patched))
         return None
 
     redacted_payload = (
