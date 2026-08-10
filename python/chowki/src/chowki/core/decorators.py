@@ -86,6 +86,14 @@ def _begin(
     kwargs: dict[str, Any],
     idempotent: bool,
 ) -> tuple[StepRecord, Any]:
+    if ctx.pause is not None:
+        # pause() froze the state a resume must load. A step allowed to run now would
+        # claim keys, fire side effects and snapshot at a later step_index, and
+        # `snapshots_for_resume` replays forward, so that snapshot would win over the
+        # pause boundary. The run is suspended: the signal is re-raised instead. The
+        # token is not repeated -- it is single-use and was delivered by the first raise.
+        raise WorkflowPaused(ctx.run_id, ctx.pause.step_id)
+
     step_id = ctx.next_step_id(name)
     ordinal = ctx.next_ordinal()
     sig = _signature(name, args, kwargs)
