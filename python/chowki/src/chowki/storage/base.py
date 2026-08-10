@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Final, Protocol
 
 from chowki.types import RunRecord, RunStatus, SnapshotEnvelope, StepRecord
+
+#: Width of the secrets adapters mint for :meth:`StorageAdapter.get_or_create_secret`.
+SECRET_BYTES: Final[int] = 32
 
 
 class StorageAdapter(Protocol):
@@ -25,6 +28,8 @@ class StorageAdapter(Protocol):
     def snapshots_for_resume(self, run_id: str) -> list[SnapshotEnvelope]: ...
 
     def claim_idempotency_key(self, key: str, *, args_hash: str) -> bool: ...
+
+    def get_or_create_secret(self, name: str) -> bytes: ...
 
     def consume_nonce(self, nonce: str, *, expires_at_epoch: float | int) -> bool: ...
 

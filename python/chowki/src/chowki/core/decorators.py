@@ -4,7 +4,9 @@ import functools
 import hashlib
 import hmac
 import inspect
+import math
 import traceback
+import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final, ParamSpec, TypeVar, cast, overload
@@ -34,9 +36,17 @@ def _signature(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict
     ``seen`` holds the ids of the containers on the path to the current value, so a
     self-referential argument degrades to a marker instead of exhausting the stack,
     while a value merely repeated between siblings is still described in full.
+
+    The result must also be something :func:`canonicalize` accepts, because an argument
+    the hasher rejects would abort the step before it ever starts. The two values it
+    refuses -- non-finite floats and keys that collide once NFC-normalized -- are folded
+    into a marker and a normalized key here.
     """
 
     def _sanitize(val: object, seen: frozenset[int]) -> Any:
+        if isinstance(val, float) and not math.isfinite(val):
+            # nan/inf have no JSON form; describing the type keeps the step alive.
+            return f"<{type(val).__name__}>"
         if val is None or isinstance(val, (bool, int, float, str)):
             return val
         if id(val) in seen:
@@ -44,7 +54,7 @@ def _signature(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict
         inner = seen | {id(val)}
         if isinstance(val, dict):
             d = cast(dict[object, object], val)
-            return {str(k): _sanitize(v, inner) for k, v in d.items()}
+            return {unicodedata.normalize("NFC", str(k)): _sanitize(v, inner) for k, v in d.items()}
         if isinstance(val, (set, frozenset)):
             members = cast(Iterable[object], val)
             # Sorting on the repr of the already-sanitised member is a total order over
@@ -84,14 +94,15 @@ def _begin(
     if existing is not None and existing.status is StepStatus.COMPLETED:
         if existing.args_hash == args_hash:
             finished = True
-            if existing.result is None:
-                return existing, None
-            decoded = decode_state(existing.result)
-            if not (isinstance(decoded, dict) and _UNSERIALIZABLE in decoded):
-                return existing, decoded
+            if existing.result_replayable:
+                if existing.result is None:
+                    return existing, None
+                return existing, decode_state(existing.result)
             # The step finished but its result cannot be replayed, so the body has to
-            # run again. The claim is deliberately left alone: this step is already
-            # accounted for, and re-claiming a key we own would abort the run.
+            # run again. Only the record says so -- a step is free to return a dict that
+            # looks exactly like the stored marker. The claim is deliberately left alone:
+            # this step is already accounted for, and re-claiming a key we own would
+            # abort the run.
         else:
             logger = structlog.get_logger()
             logger.warning(
@@ -146,6 +157,7 @@ def _succeed(
     result: Any,
     snapshot: bool,
 ) -> None:
+    replayable = True
     try:
         redacted = cast(JSONValue, ctx.engine.redactor.redact(result))
         encoded_result = encode_state(redacted)
@@ -154,12 +166,16 @@ def _succeed(
         # is a legitimate result the run should survive. Every other encoder error is a
         # defect in the value (an out-of-range int, a non-finite float); swallowing it
         # here would report the step COMPLETED while discarding its real result.
+        # The payload names the type for diagnostics only; `result_replayable` is what
+        # `_begin` reads, so a step returning that same shape stays memoisable.
+        replayable = False
         encoded_result = encode_state({_UNSERIALIZABLE: type(result).__name__})
 
     record.status = StepStatus.COMPLETED
     record.ended_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     record.attempts += 1
     record.result = encoded_result
+    record.result_replayable = replayable
 
     ctx.step_records[record.step_id] = record
     ctx.engine.storage.put_step(record)

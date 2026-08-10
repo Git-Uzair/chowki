@@ -141,6 +141,25 @@ def test_idempotency_key_reuse_with_a_different_payload_is_rejected(
         store.claim_idempotency_key("key-2", args_hash="DIFFERENT")
 
 
+def test_a_named_secret_is_minted_once_and_returned_thereafter(store: StorageAdapter) -> None:
+    first = store.get_or_create_secret("resume")
+    assert len(first) == 32
+    assert store.get_or_create_secret("resume") == first
+    assert store.get_or_create_secret("other") != first
+
+
+def test_a_sqlite_secret_outlives_the_adapter_that_minted_it(tmp_path: Path) -> None:
+    """Durability is the whole point: a new process gets a new adapter, not new bytes."""
+    path = tmp_path / "secrets.db"
+    first = SQLiteStorage(path)
+    minted = first.get_or_create_secret("resume")
+    first.close()
+
+    second = SQLiteStorage(path)
+    assert second.get_or_create_secret("resume") == minted
+    second.close()
+
+
 def test_nonce_is_single_use(store: StorageAdapter) -> None:
     assert store.consume_nonce("n1", expires_at_epoch=4_102_444_800) is True
     assert store.consume_nonce("n1", expires_at_epoch=4_102_444_800) is False

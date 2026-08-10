@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import threading
 from datetime import UTC, datetime
 from typing import cast
@@ -9,6 +10,7 @@ import msgspec
 
 from chowki.errors import ChowkiStorageError
 from chowki.state.blobs import make_blob_ref
+from chowki.storage.base import SECRET_BYTES
 from chowki.types import RunRecord, RunStatus, SnapshotEnvelope, SnapshotKind, StepRecord
 
 
@@ -20,6 +22,7 @@ class MemoryStorage:
         self._steps: dict[tuple[str, str], StepRecord] = {}
         self._snapshots: dict[tuple[str, int], SnapshotEnvelope] = {}
         self._idempotency: dict[str, tuple[str, str]] = {}
+        self._secrets: dict[str, bytes] = {}
         self._nonces: dict[str, float] = {}
         self._blobs: dict[str, bytes] = {}
         self._audit: list[dict[str, object]] = []
@@ -98,6 +101,16 @@ class MemoryStorage:
             created_at = datetime.now(UTC).isoformat()
             self._idempotency[key] = (args_hash, created_at)
             return True
+
+    def get_or_create_secret(self, name: str) -> bytes:
+        """Return the named secret, minting it on first use.
+
+        It lives exactly as long as this store does, which is the honest answer for an
+        in-memory adapter: nothing it holds survives the process either.
+        """
+        with self._lock:
+            self._check_closed()
+            return self._secrets.setdefault(name, os.urandom(SECRET_BYTES))
 
     def consume_nonce(self, nonce: str, *, expires_at_epoch: float | int) -> bool:
         """Claim a nonce, which stays claimed for the lifetime of the store.

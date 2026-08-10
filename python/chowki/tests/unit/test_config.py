@@ -55,6 +55,24 @@ def test_redaction_key_is_stable_within_an_engine() -> None:
     engine.close()
 
 
+def test_the_resume_secret_is_stable_across_engines_on_one_database(tmp_path: Path) -> None:
+    """Step idempotency keys are HMACs of this secret, so it must come off disk."""
+    db = tmp_path / "chowki.db"
+    first = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db)))
+    minted = first.resume_secret
+    first.close()
+
+    second = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db)))
+    assert second.resume_secret == minted
+    second.close()
+
+
+def test_an_explicit_resume_secret_is_used_verbatim() -> None:
+    engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), resume_secret=b"x" * 32))
+    assert engine.resume_secret == b"x" * 32
+    engine.close()
+
+
 def test_configure_replaces_the_process_engine() -> None:
     reset_engine()
     store = MemoryStorage()

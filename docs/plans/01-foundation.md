@@ -3421,11 +3421,12 @@ then flip the default. Do not stub the classes twice.
 ## Task 14 — `@chowki.step`
 
 **Status:** IN_PROGRESS
-**Failed Verify Cycles:** 2
+**Failed Verify Cycles:** 3
 **Attempt Ledger:**
 - attempt 1: Initial implementation -> FAIL (root-level src/ directory leak; claim_idempotency_key skipped when existing is RUNNING; set argument hash non-determinism across processes; bare Exception in _succeed)
 - attempt 2: Type annotation polish -> FAIL (all 4 findings persist: root src/ leak, claim_idempotency_key skipped when RUNNING, set hash process instability, bare Exception in _succeed, plus RecursionError on cycle)
-- attempt 3 (escalation): claim gated on proven completion rather than record existence; `_signature` sorts sets and carries an id-based ancestor set; `_succeed` narrowed to `except TypeError`; root `src/` tree removed and `scripts/check_layout.py` given a top-level directory allow-list. Five tests added that fail on attempt 2's code.
+- attempt 3 (escalation): claim gated on proven completion; `_signature` sorts sets and carries id-based ancestor set; `_succeed` narrowed to `except TypeError`; root `src/` tree removed -> FAIL (resume_secret default os.urandom(32) makes idempotency_key process-local so crash-resume in process B re-executes side effect; _signature fails with ValueError on non-finite float; unserialisable sentinel in result dict impersonated)
+- attempt 4 (escalation): default resume secret persisted in the store via a new `StorageAdapter.get_or_create_secret` (SQLite `secrets` table, insert-then-read) and cached on the engine; `_signature` folds non-finite floats into `<float>` and NFC-normalizes dict keys so `canonicalize` can never reject a signature; "not replayable" moved onto `StepRecord.result_replayable` so a user dict cannot impersonate the marker. Proved by a two-interpreter crash/resume test over one SQLite file.
 
 **Goal:** The interceptor that records step inputs/outputs, memoises completed steps
 (zero-waste resume), enforces idempotency for side effects, and snapshots state — for
