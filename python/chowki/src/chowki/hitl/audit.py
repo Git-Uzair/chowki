@@ -4,12 +4,25 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Final, cast
 from uuid import uuid4
 
 from chowki.state.redact import Redactor
 from chowki.storage.base import StorageAdapter
 from chowki.types import JSONObject
+
+_SYSTEM_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "audit_id",
+        "run_id",
+        "step_id",
+        "timestamp",
+        "action",
+        "original_state_hash",
+        "patched_state_hash",
+        "verification_details",
+    }
+)
 
 
 def build_audit_record(
@@ -54,11 +67,15 @@ class AuditLog:
         self._redactor = redactor
 
     def append(self, record: JSONObject) -> None:
-        rec = (
-            cast(JSONObject, self._redactor.redact(record))
-            if self._redactor is not None
-            else record
-        )
+        if self._redactor is not None:
+            rec: JSONObject = {}
+            for k, v in record.items():
+                if k in _SYSTEM_FIELDS:
+                    rec[k] = v
+                else:
+                    rec[k] = self._redactor.redact(v)
+        else:
+            rec = record
         self._storage.append_audit(cast("dict[str, object]", rec))
 
     def entries(self, *, run_id: str | None = None) -> list[JSONObject]:

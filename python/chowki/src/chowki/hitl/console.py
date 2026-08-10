@@ -9,7 +9,11 @@ from chowki.types import Decision, JSONObject
 
 
 class ConsoleGateway:
-    """Zero-config console gateway printing pause notices to stdout."""
+    """Zero-config console gateway printing pause notices to stdout.
+
+    `verify_ingress` takes raw `body` bytes because reserialisation breaks HMAC signature
+    verification.
+    """
 
     name: str = "console"
 
@@ -44,7 +48,13 @@ class ConsoleGateway:
         )
 
     def verify_ingress(self, *, body: bytes, headers: Mapping[str, str]) -> bool:
+        """Verify authenticity of inbound channel webhooks.
+
+        Takes raw `body` bytes because reserialisation breaks HMAC signature verification.
+        Always returns `False` as the console gateway has no ingress.
+        """
         return False
 
     def parse_action(self, *, body: bytes, headers: Mapping[str, str]) -> ChannelAction | None:
+        """Parse action payload received from an inbound channel webhook."""
         return None

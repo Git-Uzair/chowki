@@ -198,6 +198,7 @@ def resume(
             eff_engine.storage.put_run(run)
         raise WorkflowPaused(run_id, claims.step_id, token=new_token)
 
+    state = eff_engine.redactor.redact(state)
     state_hash_after = content_hash(state)
 
     audit_record = build_audit_record(
