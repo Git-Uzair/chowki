@@ -41,6 +41,10 @@ Patch = list[dict[str, Any]]
 MAX_DELTA_CHAIN: Final[int] = 50
 COMPACT_RATIO: Final[float] = 0.20
 
+#: The operations the fast path handles itself. Everything else -- `move`, `copy`, `test`,
+#: deeper paths, escaped tokens -- is handed to `jsonpatch`, which owns RFC 6902 in full.
+_FAST_OPS: Final[frozenset[str]] = frozenset({"add", "replace", "remove"})
+
 
 def make_patch(before: JSONValue, after: JSONValue) -> Patch:
     """Generate an RFC 6902 JSON Patch representing the diff from `before` to `after`."""
@@ -48,132 +52,96 @@ def make_patch(before: JSONValue, after: JSONValue) -> Patch:
     return cast(Patch, jp.patch)
 
 
-def _try_fast_patch(curr: Any, patch: Patch, *, in_place: bool = False) -> bool:
-    """Attempt to apply simple JSON Patch operations directly in-place.
+def _array_index(member: str) -> int | None:
+    """Parse an RFC 6901 array index: ASCII digits, no leading zero. None if it is not one."""
+    if not member.isascii() or not member.isdigit():
+        return None
+    if len(member) > 1 and member[0] == "0":
+        return None
+    return int(member)
 
-    Returns True if all operations were successfully applied, False if a complex
-    operation requires fallback to full jsonpatch engine.
+
+def _try_fast_patch(work: dict[str, Any], patch: Patch) -> bool:
+    """Apply one- and two-segment add/replace/remove operations to `work` directly.
+
+    Each operation is validated against `work` immediately before it is applied, never
+    up front: RFC 6902 is defined by sequential application, so a precondition checked
+    against the pre-patch document is stale by construction. `[remove /a, remove /a]`
+    and `[remove /items/0, add /items/3]` are conflicts, and only the current working
+    document can say so.
+
+    A `False` return means "not handled here", not "invalid": the caller re-applies the
+    whole patch with `jsonpatch`, which owns conflict semantics and raises. `work` is the
+    caller's throwaway copy, so the operations already applied are simply discarded.
+    Containers reached from `work` are copied before their first mutation, because `work`
+    is a shallow copy that shares them with the caller's `base`.
     """
-    if not isinstance(curr, dict):
-        return False
-
-    # Pass 1: Validate all operations in patch before making any mutation
+    copied: set[str] = set()
     for op_dict in patch:
         if not isinstance(cast(Any, op_dict), dict):
             return False
         op = op_dict.get("op")
         path = op_dict.get("path")
-        if not isinstance(op, str) or not isinstance(path, str) or not path.startswith("/"):
+        if op not in _FAST_OPS or not isinstance(path, str) or "~" in path:
             return False
-        if op not in ("add", "replace", "remove"):
-            return False
-        if "~" in path:
+        if op != "remove" and "value" not in op_dict:
             return False
 
-        slash_count = path.count("/")
-        if slash_count == 1:
-            last_part = path[1:]
-            if not last_part:
-                return False
-            if op in ("add", "replace") and "value" not in op_dict:
-                return False
-            if op == "remove" and last_part not in curr:
-                return False
-        elif slash_count == 2 and not path.endswith("/"):
-            idx_slash2 = path.rfind("/")
-            p_key = path[1:idx_slash2]
-            last_part = path[idx_slash2 + 1 :]
-            if not p_key or p_key not in curr:
-                return False
-            d_curr_v = cast(dict[str, Any], curr)
-            check_val = d_curr_v[p_key]
-            if isinstance(check_val, list):
-                l_val = cast(list[object], check_val)
-                if op == "add":
-                    if "value" not in op_dict:
-                        return False
-                    if last_part != "-" and (
-                        not last_part.isdigit() or int(last_part) < 0 or int(last_part) > len(l_val)
-                    ):
-                        return False
-                elif op == "replace":
-                    if (
-                        "value" not in op_dict
-                        or not last_part.isdigit()
-                        or int(last_part) < 0
-                        or int(last_part) >= len(l_val)
-                    ):
-                        return False
-                elif op == "remove":
-                    if (
-                        not last_part.isdigit()
-                        or int(last_part) < 0
-                        or int(last_part) >= len(l_val)
-                    ):
-                        return False
-            elif isinstance(check_val, dict):
-                d_val = cast(dict[str, Any], check_val)
-                if op in ("add", "replace") and "value" not in op_dict:
+        # "/a" -> ["", "a"] and "/a/b" -> ["", "a", "b"]; anything else, jsonpatch's.
+        parts = path.split("/")
+        if parts[0] != "" or len(parts) not in (2, 3) or not all(parts[1:]):
+            return False
+
+        if len(parts) == 2:
+            key = parts[1]
+            if op == "remove":
+                if key not in work:
                     return False
-                if op == "remove" and last_part not in d_val:
-                    return False
+                del work[key]
             else:
+                work[key] = op_dict["value"]
+            continue
+
+        parent_key, member = parts[1], parts[2]
+        if parent_key not in work:
+            return False
+        parent = work[parent_key]
+
+        if isinstance(parent, dict):
+            d_parent = cast(dict[str, Any], parent)
+            if parent_key not in copied:
+                d_parent = dict(d_parent)
+                work[parent_key] = d_parent
+                copied.add(parent_key)
+            if op == "remove":
+                if member not in d_parent:
+                    return False
+                del d_parent[member]
+            else:
+                d_parent[member] = op_dict["value"]
+        elif isinstance(parent, list):
+            l_parent = cast(list[object], parent)
+            if parent_key not in copied:
+                l_parent = list(l_parent)
+                work[parent_key] = l_parent
+                copied.add(parent_key)
+            if member == "-":
+                if op != "add":
+                    return False
+                l_parent.append(op_dict["value"])
+                continue
+            idx = _array_index(member)
+            # `add` may address one past the end; `replace` and `remove` may not.
+            if idx is None or idx > (len(l_parent) if op == "add" else len(l_parent) - 1):
                 return False
+            if op == "add":
+                l_parent.insert(idx, op_dict["value"])
+            elif op == "replace":
+                l_parent[idx] = op_dict["value"]
+            else:
+                del l_parent[idx]
         else:
             return False
-
-    # Pass 2: Apply operations safely
-    d_curr = cast(dict[str, Any], curr)
-    copied_keys: set[str] = set()
-
-    for op_dict in patch:
-        op = cast(str, op_dict["op"])
-        path = cast(str, op_dict["path"])
-        slash_count = path.count("/")
-
-        if slash_count == 1:
-            last_part = path[1:]
-            if op in ("add", "replace"):
-                d_curr[last_part] = op_dict["value"]
-            elif op == "remove":
-                d_curr.pop(last_part, None)
-        elif slash_count == 2:
-            idx_slash2 = path.rfind("/")
-            p_key = path[1:idx_slash2]
-            last_part = path[idx_slash2 + 1 :]
-            curr_item = d_curr[p_key]
-
-            if isinstance(curr_item, list):
-                val_lst = cast(list[object], curr_item)
-                if p_key not in copied_keys:
-                    val_lst = list(val_lst)
-                    d_curr[p_key] = val_lst
-                    copied_keys.add(p_key)
-                l_val = val_lst
-                if op == "add":
-                    if last_part == "-":
-                        l_val.append(op_dict["value"])
-                    else:
-                        idx = int(last_part)
-                        l_val.insert(idx, op_dict["value"])
-                elif op == "replace":
-                    idx = int(last_part)
-                    l_val[idx] = op_dict["value"]
-                elif op == "remove":
-                    idx = int(last_part)
-                    l_val.pop(idx)
-
-            elif isinstance(curr_item, dict):
-                val_dict = cast(dict[str, Any], curr_item)
-                if p_key not in copied_keys:
-                    val_dict = dict(val_dict)
-                    d_curr[p_key] = val_dict
-                    copied_keys.add(p_key)
-                d_val = val_dict
-                if op in ("add", "replace"):
-                    d_val[last_part] = op_dict["value"]
-                elif op == "remove":
-                    d_val.pop(last_part, None)
 
     return True
 
@@ -192,21 +160,21 @@ def apply_patch(base: JSONValue, patch: Patch, *, in_place: bool = False) -> JSO
                 f"Invalid patch operation: expected dict, got {type(op_dict).__name__}"
             )
 
-    if in_place:
-        curr = base
-    else:
-        if isinstance(base, dict):
-            curr = dict(base)
-        elif isinstance(base, list):
-            curr = list(base)
-        else:
-            curr = copy.deepcopy(base)
-
     try:
-        if _try_fast_patch(curr, patch):
-            return curr
-        fallback_base = base if in_place else copy.deepcopy(base)
-        res: Any = _jsonpatch.apply_patch(fallback_base, patch, in_place=in_place)
+        if isinstance(base, dict):
+            # A throwaway copy even when `in_place`: the fast path mutates as it goes and
+            # may still bail on a later operation, and the jsonpatch fallback has to see
+            # a document nothing has touched.
+            work: dict[str, Any] = dict(base)
+            if _try_fast_patch(work, patch):
+                if in_place:
+                    base.clear()
+                    base.update(work)
+                    return base
+                return work
+
+        target = base if in_place else copy.deepcopy(base)
+        res: Any = _jsonpatch.apply_patch(target, patch, in_place=True)
         return cast(JSONValue, res)
     except _PATCH_ERRORS as e:
         failing_op = _find_failing_op(base, patch)

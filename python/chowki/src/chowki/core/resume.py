@@ -8,7 +8,7 @@ Warning (R4):
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -17,7 +17,6 @@ from uuid import uuid4
 from msgspec.structs import replace as msgspec_replace
 
 from chowki.config import ChowkiEngine, get_engine
-from chowki.core.context import StateDict
 from chowki.errors import (
     ChowkiStateError,
     ExpiredResumeToken,
@@ -29,7 +28,7 @@ from chowki.errors import (
 from chowki.hitl.tokens import ResumeClaims
 from chowki.state.canonical import content_hash
 from chowki.state.delta import Patch, apply_patch
-from chowki.types import Decision, JSONObject, RunStatus
+from chowki.types import Decision, JSONObject, RunRecord, RunStatus, SnapshotEnvelope
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,17 +40,30 @@ class ResumeResult:
     state_hash_after: str
 
 
-def _extract_root_keys(patch: Patch | None) -> set[str]:
-    if not patch:
-        return set()
-    keys: set[str] = set()
-    for op in patch:
-        path = op.get("path")
-        if isinstance(path, str) and path.startswith("/"):
-            parts = path.lstrip("/").split("/")
-            if parts and parts[0]:
-                keys.add(parts[0])
-    return keys
+def _persist_state_of_record(
+    engine: ChowkiEngine,
+    run: RunRecord,
+    snaps: Sequence[SnapshotEnvelope],
+    state: dict[str, Any],
+) -> None:
+    """Write the decided state to storage as the state the run continues from.
+
+    It is written over the pause boundary's snapshot index, which is the one index the
+    re-execution never writes to: a decided gate falls through `pause()` without
+    snapshotting, while every other event owns its own ordinal. Dropping the pipeline
+    first makes the write a BASE, so `snapshots_for_resume` starts *at* the decided state
+    and every later delta chains onto it. Without this, the snapshots the decision
+    superseded stay the run's state of record, and a later gate — or a fresh process —
+    would load pre-edit values back.
+    """
+    boundary_index = max(e.step_index for e in snaps)
+    engine.drop_pipeline(run.run_id)
+    engine.pipeline_for(run.run_id).snapshot(
+        state,
+        run_id=run.run_id,
+        workflow=run.workflow,
+        step_index=boundary_index,
+    )
 
 
 def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any:
@@ -116,8 +128,10 @@ def resume(
 
     snaps = eff_engine.storage.snapshots_for_resume(run_id)
     raw_state = eff_engine.pipeline_for(run_id).load(snaps)
-    state: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
-    state_hash_before = content_hash(state)
+    # `reviewed` stays the state the human was shown; `state` becomes the decided state.
+    reviewed: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
+    state: dict[str, Any] = reviewed
+    state_hash_before = content_hash(reviewed)
 
     if decision is Decision.REJECT:
         audit_record: dict[str, Any] = {
@@ -208,9 +222,14 @@ def resume(
     run.status = RunStatus.RUNNING
     eff_engine.storage.put_run(run)
 
-    frozen_keys = _extract_root_keys(patch if decision is Decision.EDIT else None)
-    resumed_state = StateDict(state, frozen_keys=frozen_keys)
-    eff_engine.pending_resume_state[run_id] = (claims.step_id, resumed_state)
+    if state_hash_after != state_hash_before:
+        _persist_state_of_record(eff_engine, run, snaps, state)
+
+    # The re-execution is seeded with the state the human reviewed, not the patched one:
+    # `pause()` applies the patch when it falls through this gate, which is the point in
+    # the body where the human's decision belongs. Seeding the patched state instead
+    # would apply the edit twice for any key the replay does not rewrite.
+    eff_engine.pending_resume_state[run_id] = (claims.step_id, reviewed)
 
     val = _invoke_workflow(workflow_fn, run_id)
 

@@ -4,7 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 from chowki.guardrails.budget import BudgetTracker
 from chowki.guardrails.loops import LoopDetector
@@ -12,38 +12,7 @@ from chowki.types import JSONObject, PauseRequest, StepRecord, Usage
 
 if TYPE_CHECKING:
     from chowki.config import ChowkiEngine
-
-
-class StateDict(dict[str, Any]):
-    """Special dict that protects patched state keys from being overwritten
-    by unpatched step re-executions during warm resume.
-    """
-
-    def __init__(self, *args: Any, frozen_keys: set[str] | None = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._frozen_keys: set[str] = set(frozen_keys) if frozen_keys is not None else set()
-
-    def unfreeze(self) -> None:
-        self._frozen_keys.clear()
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        if key in self._frozen_keys:
-            current = self.get(key)
-            if isinstance(current, dict) and isinstance(value, dict):
-                merged: dict[str, Any] = dict(cast(dict[str, Any], value))
-                merged.update(cast(dict[str, Any], current))
-                super().__setitem__(key, merged)
-            return
-        super().__setitem__(key, value)
-
-    def update(self, *args: Any, **kwargs: Any) -> None:
-        other = dict(*args, **kwargs)
-        for k, v in other.items():
-            self[k] = v
-
-    def clear(self) -> None:
-        self._frozen_keys.clear()
-        super().clear()
+    from chowki.state.delta import Patch
 
 
 def _default_state() -> JSONObject:
@@ -62,6 +31,10 @@ def _default_resumed_step_ids() -> set[str]:
     return set()
 
 
+def _default_resumed_patches() -> dict[str, Patch]:
+    return {}
+
+
 @dataclass(slots=True)
 class RunContext:
     run_id: str
@@ -70,6 +43,11 @@ class RunContext:
     state: JSONObject = field(default_factory=_default_state)
     resuming: bool = False
     resumed_step_ids: set[str] = field(default_factory=_default_resumed_step_ids)
+    #: step_id -> the RFC 6902 patch a human already applied at that gate, read from the
+    #: audit log. `pause()` re-applies it when it falls through that gate, which is what
+    #: keeps a human edit authoritative for the rest of the run instead of being undone
+    #: by the pre-pause assignments the re-execution replays.
+    resumed_patches: dict[str, Patch] = field(default_factory=_default_resumed_patches)
     usage: Usage = field(default_factory=Usage)
     step_records: dict[str, StepRecord] = field(default_factory=_default_step_records)
     pause: PauseRequest | None = None

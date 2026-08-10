@@ -4885,24 +4885,28 @@ def pause(
 
 ## Task 20 — `chowki.resume()`: warm resume with state patching
 
-**Status:** COMPLETED
+**Status:** Attempt 3 implemented by @opus-coder — pending `@verifier`
 
 **Attempt Ledger:**
 - attempt 1: Implementation of `resume()` + fast patch & codec optimizations -> FAIL (`_try_fast_patch` mutation bug causing duplicate appends, `materialize()` in_place corruptions, `_copy_containers` shallow copy list sharing bug, `inline_blobs` process-local state bug on restart, broad `TypeError` catch in `resume()`, `msgspec.Struct` `replace()` bug on ESCALATE, two-gate pause fall-through loop in `runner.py`, `StateDict.__setitem__` discarding pre-pause writes, missing docstrings/registry notes, RFC 6902 resolution duplication).
-- attempt 2: Fixed all 11 verifier findings across `delta.py`, `pipeline.py`, `resume.py`, `runner.py`, `context.py`, and `codec.py`. All 18 unit tests, full test suite (368 unit + 4 integration + 14 benchmarks) pass, and local CI succeeded. -> PASS
+- attempt 2: Per-key overwrite filter in StateDict & two-pass _try_fast_patch -> FAIL (two-pass fast patch accepts sequentially conflicting ops like `[remove /a, remove /a]` or `[remove /items/0, add /items/3]` returning corrupted list instead of `ChowkiStateError`; `pop()` default swallows missing member removal; `StateDict` dict merge re-adds deleted/replaced keys from pre-pause assignments; `frozen_keys` forgotten on multi-gate workflow second resume resetting human edits; `patched_state_hash` mismatch with executed state).
 
-**Verifier Findings to Fix in Next Session:**
-1. **`python/chowki/src/chowki/state/delta.py:255`**: `_try_fast_patch` with `in_place=True` mutates `base` before returning `False`, then `jsonpatch` fallback re-applies the whole patch to that already mutated object (causes duplicate appends).
-2. **`python/chowki/src/chowki/state/delta.py:310`**: `materialize()` uses `in_place=True` for `patches[1:]`, so any delta containing `move`/`copy`/`test` after a simple op silently corrupts reconstructed state.
-3. **`python/chowki/src/chowki/state/pipeline.py:228`**: `_copy_containers` copies lists shallowly, so dicts inside lists are shared between returned state and `stripped_current`, making caller mutations invisible to `make_patch` (silent lost update).
-4. **`python/chowki/src/chowki/state/pipeline.py:219`**: `inline_blobs` is skipped when `BlobStore` is empty and `has_escapes` is `False`, so after a restart escaped literals load as `ref-lit:...` instead of original values.
-5. **`python/chowki/src/chowki/core/resume.py:169`**: `except TypeError: val = workflow_fn()` catches `TypeError` raised anywhere inside the resumed workflow body and re-invokes `workflow_fn()` without `run_id`, starting a fresh run and re-running completed steps.
-6. **`python/chowki/src/chowki/core/resume.py:135`**: `dataclasses.replace` is called on `run.pause` (a `msgspec.Struct`), raising `TypeError` on `ESCALATE` decisions.
-7. **`python/chowki/src/chowki/core/runner.py:245`**: `pause()` fall-through is keyed only on one resumed `step_id`, causing two-gate workflows to alternate re-pausing at the first gate instead of completing.
-8. **`python/chowki/src/chowki/core/context.py:30`**: `StateDict.__setitem__` silently discards writes to every key present at resume time, causing re-executed pre-pause code to lose its effect.
-9. **`python/chowki/src/chowki/state/delta.py:58`**: Malformed patch elements escape as `AttributeError` instead of `ChowkiStateError`.
-10. **`core/resume.py`**: Add required module and function docstrings with the R4 warning ("every side effect must live inside a `@chowki.step`").
-11. **`python/chowki/src/chowki/state/delta.py` & `codec.py`**: Clean up RFC 6902 duplication and `hash_bytes` duplication.
+- attempt 3 (@opus-coder): the human's decision is no longer a filter over the live state
+  dict. Its RFC 6902 patch is read from the audit log and re-applied by `pause()` at the
+  gate it was made at, on every re-execution, so deletions and replacements survive later
+  gates, later resumes and a restart; the decided state is also written to storage as a
+  BASE over the pause boundary index (`_persist_state_of_record`), and the re-execution is
+  seeded with the reviewed state so the patch applies exactly once. `_try_fast_patch`
+  validates each op against the working copy immediately before applying it and bails to
+  `jsonpatch` with zero effect on `base`; `StateDict` is deleted. All 5 findings below are
+  addressed; 394 tests, ruff, pyright, mypy and `scripts/ci_local.py` pass.
+
+**Verifier Findings from Attempt 2 (all addressed by attempt 3):**
+1. **RFC 6902 Fast Patch Validation (`python/chowki/src/chowki/state/delta.py`)**: Two-pass validation evaluates all ops against pre-mutation state, missing sequential dependencies (e.g. `[remove /a, remove /a]` or `[remove /items/0, add /items/3]`). Apply ops sequentially on a working copy (or fallback to `jsonpatch`) and fail immediately on precondition failure. Remove `, None` defaults on `pop()` calls so missing member removals raise `ChowkiStateError`.
+2. **Authoritative Patched State Persistence (`python/chowki/src/chowki/core/resume.py`, `context.py`, `runner.py`)**: Make patched state the authoritative snapshot persisted and loaded by the pipeline so replayed pre-pause assignments do not resurrect replaced/deleted keys. `StateDict` must properly support key deletions instead of shallow dict merging that re-introduces pre-pause keys.
+3. **Multi-gate Edit Persistence (`python/chowki/src/chowki/core/resume.py`, `runner.py`)**: Human edits applied at gate 1 must persist across subsequent resume gates (e.g. APPROVE at gate 2 must retain human edit from gate 1).
+4. **State Hash Parity**: `patched_state_hash` in audit log must equal `content_hash` of the state observed by the resumed body.
+5. **Test Utility Integrity**: Ensure `test_finding2_materialize_handles_complex_ops_in_delta_chain` properly tests the `materialize()` `in_place` fix.
 
 **Goal:** ADR-004's payoff — apply a human decision plus an optional RFC 6902 patch to a
 paused run's state and continue with zero replay and zero repeated side effects.

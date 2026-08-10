@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any, cast
 
 import pytest
@@ -10,7 +11,17 @@ from chowki.core.decorators import step, workflow
 from chowki.core.resume import ResumeResult, resume
 from chowki.core.runner import pause
 from chowki.errors import HumanRejectedError, WorkflowPaused
-from chowki.types import Decision, JSONObject, RunStatus
+from chowki.types import Decision, JSONObject, JSONValue, RunStatus
+
+
+def probe_state_of_record(engine: ChowkiEngine, run_id: str) -> JSONValue:
+    """Reconstruct a run's persisted state without disturbing its live pipeline."""
+    from chowki.state.pipeline import SnapshotPipeline
+
+    probe = SnapshotPipeline(
+        redactor=engine.redactor, blobs=engine.blobs, tenant_id=engine.config.tenant_id
+    )
+    return probe.load(engine.storage.snapshots_for_resume(run_id))
 
 
 def build(engine: ChowkiEngine, calls: list[str]):
@@ -341,16 +352,6 @@ def test_finding7_two_gate_workflow_resumes_through_both_gates(engine: ChowkiEng
     assert calls == ["start", "middle", "end"]
 
 
-def test_finding8_state_dict_updates_during_resume() -> None:
-    from chowki.core.context import StateDict
-
-    sd = StateDict({"prop": {"a": 1}}, frozen_keys={"prop"})
-    sd["prop"] = {"a": 1, "b": 2}
-    assert sd["prop"] == {"a": 1, "b": 2}
-    sd["new_key"] = "x"
-    assert sd["new_key"] == "x"
-
-
 def test_finding9_malformed_patch_elements_raise_chowki_state_error() -> None:
     from chowki.errors import ChowkiStateError
     from chowki.state.delta import apply_patch
@@ -367,3 +368,212 @@ def test_finding10_core_resume_docstrings() -> None:
     assert resume_mod.resume.__doc__ is not None
     assert "@chowki.step" in resume_mod.resume.__doc__
     assert "Phase 2" in resume_mod.resume.__doc__
+
+
+@pytest.mark.parametrize(
+    ("base", "patch"),
+    [
+        ({"a": 1, "b": 2}, [{"op": "remove", "path": "/a"}, {"op": "remove", "path": "/a"}]),
+        (
+            {"d": {"x": 1, "y": 2}},
+            [{"op": "remove", "path": "/d/x"}, {"op": "remove", "path": "/d/x"}],
+        ),
+        (
+            {"items": [1, 2, 3]},
+            [{"op": "remove", "path": "/items/0"}, {"op": "add", "path": "/items/3", "value": 9}],
+        ),
+    ],
+)
+def test_sequentially_conflicting_ops_are_rejected(
+    base: dict[str, Any], patch: list[dict[str, Any]]
+) -> None:
+    """RFC 6902 is sequential: op N's preconditions hold against the result of op N-1."""
+    from chowki.errors import ChowkiStateError
+    from chowki.state.delta import apply_patch
+
+    before = copy.deepcopy(base)
+    with pytest.raises(ChowkiStateError):
+        apply_patch(base, patch)
+    assert base == before, "a rejected patch must leave the base untouched"
+
+
+def test_sequentially_valid_ops_are_applied_in_order() -> None:
+    from chowki.state.delta import apply_patch
+
+    base = {"items": [1, 2, 3], "a": 1}
+    res = apply_patch(
+        base,
+        [
+            {"op": "remove", "path": "/items/0"},
+            {"op": "add", "path": "/items/2", "value": 9},
+            {"op": "remove", "path": "/a"},
+        ],
+    )
+    assert res == {"items": [2, 3, 9]}
+    assert base == {"items": [1, 2, 3], "a": 1}
+
+
+def test_materialize_does_not_reapply_ops_that_precede_a_complex_op() -> None:
+    """A patch whose simple prefix is applied before a fallback op must not double-apply."""
+    from chowki.state.delta import DeltaChain
+
+    chain = DeltaChain(base={"items": [1, 2]})
+    chain.append([{"op": "add", "path": "/items/-", "value": 3}])
+    chain.append(
+        [
+            {"op": "add", "path": "/items/-", "value": 4},
+            {"op": "move", "from": "/items", "path": "/moved"},
+        ]
+    )
+    assert chain.materialize() == {"moved": [1, 2, 3, 4]}
+    assert chain.base == {"items": [1, 2]}
+
+
+def build_observed(engine: ChowkiEngine, observed: list[JSONObject]) -> Any:
+    @step
+    def prepare() -> JSONObject:
+        return {"recipient": "wrong@example.com", "amount": 5000}
+
+    @workflow(engine=engine)
+    def transfer() -> str:
+        current_run().state["proposal"] = prepare()
+        pause(
+            reason="approve transfer",
+            payload={},
+            permitted_actions=("APPROVE", "REJECT", "EDIT"),
+        )
+        observed.append(copy.deepcopy(current_run().state))
+        return "sent"
+
+    return transfer
+
+
+def test_an_edit_that_removes_a_key_is_visible_to_the_resumed_body(
+    engine: ChowkiEngine,
+) -> None:
+    from chowki.state.canonical import content_hash
+
+    observed: list[JSONObject] = []
+    transfer = build_observed(engine, observed)
+
+    with pytest.raises(WorkflowPaused) as excinfo:
+        transfer(run_id="r_rm")
+    token = excinfo.value.token
+    assert token is not None
+
+    resume(
+        run_id="r_rm",
+        token=token,
+        decision=Decision.EDIT,
+        patch=[{"op": "remove", "path": "/proposal/amount"}],
+        workflow_fn=transfer,
+        engine=engine,
+    )
+
+    assert observed[-1] == {"proposal": {"recipient": "wrong@example.com"}}
+    rec = engine.storage.list_audit(run_id="r_rm")[0]
+    assert rec["patched_state_hash"] == content_hash(observed[-1])
+    assert probe_state_of_record(engine, "r_rm") == {"proposal": {"recipient": "wrong@example.com"}}
+
+
+def test_an_edit_that_replaces_a_subtree_is_visible_to_the_resumed_body(
+    engine: ChowkiEngine,
+) -> None:
+    observed: list[JSONObject] = []
+    transfer = build_observed(engine, observed)
+
+    with pytest.raises(WorkflowPaused) as excinfo:
+        transfer(run_id="r_sub")
+    token = excinfo.value.token
+    assert token is not None
+
+    resume(
+        run_id="r_sub",
+        token=token,
+        decision=Decision.EDIT,
+        patch=[{"op": "replace", "path": "/proposal", "value": {"recipient": "ok@x.com"}}],
+        workflow_fn=transfer,
+        engine=engine,
+    )
+
+    assert observed[-1] == {"proposal": {"recipient": "ok@x.com"}}
+
+
+def test_replayed_pre_pause_writes_are_not_discarded(engine: ChowkiEngine) -> None:
+    """The human's edit wins, but every other replayed write still takes effect."""
+    observed: list[JSONObject] = []
+    passes: list[int] = []
+
+    @workflow(engine=engine)
+    def wf() -> str:
+        passes.append(1)
+        state = current_run().state
+        state["attempt"] = len(passes)
+        state["proposal"] = {"amount": 100}
+        pause(reason="gate", permitted_actions=("APPROVE", "REJECT", "EDIT"))
+        observed.append(copy.deepcopy(state))
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as excinfo:
+        wf(run_id="r_replay")
+    token = excinfo.value.token
+    assert token is not None
+
+    resume(
+        run_id="r_replay",
+        token=token,
+        decision=Decision.EDIT,
+        patch=[{"op": "remove", "path": "/proposal/amount"}],
+        workflow_fn=wf,
+        engine=engine,
+    )
+
+    assert observed[-1] == {"attempt": 2, "proposal": {}}
+
+
+def test_a_human_edit_survives_a_later_gate(engine: ChowkiEngine) -> None:
+    observed: list[JSONObject] = []
+
+    @step
+    def make_proposal() -> JSONObject:
+        return {"amount": 100}
+
+    @workflow(engine=engine)
+    def two_gates() -> str:
+        current_run().state["proposal"] = make_proposal()
+        pause(reason="gate1", permitted_actions=("APPROVE", "REJECT", "EDIT"))
+        current_run().state["mid"] = "mid"
+        pause(reason="gate2", permitted_actions=("APPROVE", "REJECT"))
+        observed.append(copy.deepcopy(current_run().state))
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as exc1:
+        two_gates(run_id="r_2g")
+    token1 = exc1.value.token
+    assert token1 is not None
+
+    with pytest.raises(WorkflowPaused) as exc2:
+        resume(
+            run_id="r_2g",
+            token=token1,
+            decision=Decision.EDIT,
+            patch=[{"op": "replace", "path": "/proposal/amount", "value": 7}],
+            workflow_fn=two_gates,
+            engine=engine,
+        )
+    token2 = exc2.value.token
+    assert token2 is not None
+
+    # The decision is the run's state of record from here on, not a process-local overlay.
+    assert probe_state_of_record(engine, "r_2g") == {"proposal": {"amount": 7}, "mid": "mid"}
+
+    res = resume(
+        run_id="r_2g",
+        token=token2,
+        decision=Decision.APPROVE,
+        workflow_fn=two_gates,
+        engine=engine,
+    )
+    assert res.value == "done"
+    assert observed[-1] == {"proposal": {"amount": 7}, "mid": "mid"}
+    assert probe_state_of_record(engine, "r_2g") == {"proposal": {"amount": 7}, "mid": "mid"}
