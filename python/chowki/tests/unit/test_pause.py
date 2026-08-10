@@ -1,10 +1,13 @@
 # python/chowki/tests/unit/test_pause.py
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 
 from chowki.config import ChowkiEngine
-from chowki.core.decorators import workflow
+from chowki.core.context import current_run
+from chowki.core.decorators import step, workflow
 from chowki.core.runner import pause
 from chowki.errors import WorkflowPaused
 from chowki.types import RunStatus
@@ -40,7 +43,6 @@ def test_pause_snapshots_state_before_suspending(engine: ChowkiEngine) -> None:
     A workflow that catches WorkflowPaused and keeps mutating state must not be able to
     overwrite the snapshot a resume will load.
     """
-    from chowki.core.context import current_run
 
     @workflow(engine=engine)
     def pipeline() -> None:
@@ -94,6 +96,44 @@ def test_pause_persists_the_run_even_if_the_workflow_swallows_the_exception(
     assert run.pause is not None
     assert run.pause.reason == "review"
     assert run.pause.payload == {"amount": 1}
+
+
+def test_a_step_called_after_a_pause_is_refused(engine: ChowkiEngine) -> None:
+    """Once a run is paused no step may run: it would snapshot over the pause boundary.
+
+    snapshots_for_resume replays every snapshot after the last base, so a step that
+    succeeds after pause() writes a later snapshot that wins over the pause-time one.
+    """
+    calls: list[str] = []
+
+    @step
+    def clobber() -> str:
+        calls.append("ran")
+        current_run().state["draft"] = "clobbered"
+        return "done"
+
+    @workflow(engine=engine)
+    def pipeline() -> None:
+        ctx = current_run()
+        ctx.state["draft"] = "ready"
+        with contextlib.suppress(WorkflowPaused):
+            pause(reason="review")
+        clobber()
+
+    with pytest.raises(WorkflowPaused) as excinfo:
+        pipeline(run_id="r5")
+
+    assert excinfo.value.run_id == "r5"
+    assert calls == []
+    assert engine.storage.list_steps("r5") == []
+
+    run = engine.storage.get_run("r5")
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+
+    snaps = engine.storage.snapshots_for_resume("r5")
+    assert snaps
+    assert engine.pipeline_for("r5").load(snaps) == {"draft": "ready"}
 
 
 def test_pause_outside_a_workflow_is_an_error() -> None:
