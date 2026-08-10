@@ -40,28 +40,42 @@ def _open_run(
             updated_at_utc=now,
             status=RunStatus.RUNNING,
         )
-        engine.storage.put_run(record)
     else:
         record = existing
         record.status = RunStatus.RUNNING
         record.updated_at_utc = now
+
+    engine.storage.put_run(record)
+
+    try:
+        all_snapshots = engine.storage.list_snapshots(rid)
+        all_steps = engine.storage.list_steps(rid)
+        max_snap_idx = max((e.step_index for e in all_snapshots), default=-1)
+        max_step_ord = max((s.ordinal for s in all_steps), default=-1)
+        start_ordinal = max(max_snap_idx, max_step_ord) + 1
+
+        snaps = engine.storage.snapshots_for_resume(rid)
+        state: dict[str, Any] = {}
+        if resuming and snaps:
+            loaded = engine.pipeline_for(rid).load(snaps)
+            if isinstance(loaded, dict):
+                state = loaded
+
+        ctx = RunContext(
+            run_id=rid,
+            workflow=workflow_name,
+            engine=engine,
+            state=state,
+            resuming=resuming,
+            _ordinal=start_ordinal,
+        )
+        return ctx, record
+    except BaseException:
+        record.status = RunStatus.FAILED
+        record.updated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         engine.storage.put_run(record)
-
-    snaps = engine.storage.snapshots_for_resume(rid)
-    state: dict[str, Any] = {}
-    if resuming and snaps:
-        loaded = engine.pipeline_for(rid).load(snaps)
-        if isinstance(loaded, dict):
-            state = loaded
-
-    ctx = RunContext(
-        run_id=rid,
-        workflow=workflow_name,
-        engine=engine,
-        state=state,
-        resuming=resuming,
-    )
-    return ctx, record
+        engine.drop_pipeline(rid)
+        raise
 
 
 def _close_run(
@@ -72,30 +86,38 @@ def _close_run(
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     record.updated_at_utc = now
 
-    ctx.engine.pipeline_for(ctx.run_id).snapshot(
-        ctx.state,
-        run_id=ctx.run_id,
-        workflow=ctx.workflow,
-        step_index=ctx.next_ordinal(),
-    )
+    snapshot_exc: BaseException | None = None
+    try:
+        ctx.engine.pipeline_for(ctx.run_id).snapshot(
+            ctx.state,
+            run_id=ctx.run_id,
+            workflow=ctx.workflow,
+            step_index=ctx.next_ordinal(),
+        )
+    except BaseException as snap_err:
+        snapshot_exc = snap_err
 
-    if exc is None:
-        record.status = RunStatus.COMPLETED
-        record.usage = ctx.usage
-        ctx.engine.storage.put_run(record)
-        ctx.engine.drop_pipeline(ctx.run_id)
-    elif isinstance(exc, WorkflowPaused):
-        record.status = RunStatus.PAUSED
-        record.pause = ctx.pause
-        ctx.engine.storage.put_run(record)
-    elif isinstance(exc, HumanRejectedError):
-        record.status = RunStatus.REJECTED
-        ctx.engine.storage.put_run(record)
-        ctx.engine.drop_pipeline(ctx.run_id)
-    else:
-        record.status = RunStatus.FAILED
-        ctx.engine.storage.put_run(record)
-        ctx.engine.drop_pipeline(ctx.run_id)
+    try:
+        if exc is None and snapshot_exc is None:
+            record.status = RunStatus.COMPLETED
+            record.usage = ctx.usage
+            ctx.engine.storage.put_run(record)
+            ctx.engine.drop_pipeline(ctx.run_id)
+        elif isinstance(exc, WorkflowPaused) and snapshot_exc is None:
+            record.status = RunStatus.PAUSED
+            record.pause = ctx.pause
+            ctx.engine.storage.put_run(record)
+        elif isinstance(exc, HumanRejectedError) and snapshot_exc is None:
+            record.status = RunStatus.REJECTED
+            ctx.engine.storage.put_run(record)
+            ctx.engine.drop_pipeline(ctx.run_id)
+        else:
+            record.status = RunStatus.FAILED
+            ctx.engine.storage.put_run(record)
+            ctx.engine.drop_pipeline(ctx.run_id)
+    finally:
+        if snapshot_exc is not None and exc is None:
+            raise snapshot_exc
 
 
 @overload
