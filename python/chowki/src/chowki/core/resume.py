@@ -147,6 +147,16 @@ def resume(
     state_hash_before = content_hash(reviewed)
     audit_log = AuditLog(eff_engine.storage, redactor=eff_engine.redactor)
 
+    # The human's patch is redacted once, here, and only this form is ever used: it is
+    # what the decided state is computed from and what the audit log records. Redacting
+    # the two routes separately diverged under a sensitive key, where applying the raw
+    # value yields `[REDACTED:key_name:...]` while the replay -- which applies the audit
+    # log's already-redacted patch -- keeps the value's own `[REDACTED:<kind>:...]`
+    # placeholder, so `state_hash_after` described a document no replay could rebuild.
+    effective_patch: Patch = (
+        cast(Patch, eff_engine.redactor.redact(cast(list[Any], patch))) if patch else []
+    )
+
     if decision is Decision.REJECT:
         audit_record = build_audit_record(
             run_id=run_id,
@@ -166,8 +176,8 @@ def resume(
         eff_engine.drop_pipeline(run_id)
         raise HumanRejectedError(run_id, claims.step_id, note=note)
 
-    if decision is Decision.EDIT and patch:
-        state = cast(dict[str, Any], apply_patch(state, patch))
+    if decision is Decision.EDIT and effective_patch:
+        state = cast(dict[str, Any], apply_patch(state, effective_patch))
     elif decision is Decision.ESCALATE:
         current_pause = run.pause
         permitted = (
@@ -185,7 +195,7 @@ def resume(
             actor=actor,
             original_state_hash=state_hash_before,
             patched_state_hash=state_hash_before,
-            json_patch=patch or [],
+            json_patch=effective_patch,
             nonce=claims.nonce,
             note=note,
         )
@@ -198,6 +208,11 @@ def resume(
             eff_engine.storage.put_run(run)
         raise WorkflowPaused(run_id, claims.step_id, token=new_token)
 
+    # The snapshot pipeline redacts everything it stores, so the decided state has to be
+    # redacted here too for `state_hash_after` to name the document that gets persisted:
+    # a patch value that is not itself a secret still becomes a placeholder when it lands
+    # under a sensitive key. Redaction is a fixpoint over its own placeholders, so the
+    # pipeline's second pass over this tree changes nothing.
     state = eff_engine.redactor.redact(state)
     state_hash_after = content_hash(state)
 
@@ -208,7 +223,7 @@ def resume(
         actor=actor,
         original_state_hash=state_hash_before,
         patched_state_hash=state_hash_after,
-        json_patch=patch or [],
+        json_patch=effective_patch,
         nonce=claims.nonce,
         note=note,
     )
