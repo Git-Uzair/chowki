@@ -35,16 +35,27 @@ def test_pause_suspends_the_run_and_persists_the_request(engine: ChowkiEngine) -
 
 
 def test_pause_snapshots_state_before_suspending(engine: ChowkiEngine) -> None:
+    """The durable state of a paused run is the state as of the pause() call.
+
+    A workflow that catches WorkflowPaused and keeps mutating state must not be able to
+    overwrite the snapshot a resume will load.
+    """
     from chowki.core.context import current_run
 
     @workflow(engine=engine)
     def pipeline() -> None:
-        current_run().state["draft"] = "ready"
-        pause(reason="review")
+        ctx = current_run()
+        ctx.state["draft"] = "ready"
+        try:
+            pause(reason="review")
+        except WorkflowPaused:
+            ctx.state["draft"] = "after"
 
-    with pytest.raises(WorkflowPaused):
-        pipeline(run_id="r2")
-    assert engine.storage.list_snapshots("r2")
+    pipeline(run_id="r2")
+
+    snaps = engine.storage.snapshots_for_resume("r2")
+    assert snaps
+    assert engine.pipeline_for("r2").load(snaps) == {"draft": "ready"}
 
 
 def test_pause_redacts_the_payload(engine: ChowkiEngine) -> None:

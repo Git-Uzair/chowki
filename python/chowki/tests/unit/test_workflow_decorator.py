@@ -142,7 +142,13 @@ def test_disallow_reserved_parameter_names() -> None:
 def test_workflow_paused_and_rejected_handling(engine: ChowkiEngine) -> None:
     @workflow(engine=engine)
     def paused_wf() -> None:
-        current_run().pause = PauseRequest(step_id="step1", reason="need review")
+        ctx = current_run()
+        # Mirror pause(): the pause-time state is snapshotted before suspending, so the
+        # pipeline this run owns already exists when _close_run marks it PAUSED.
+        ctx.engine.pipeline_for("p1").snapshot(
+            ctx.state, run_id="p1", workflow=ctx.workflow, step_index=ctx.next_ordinal()
+        )
+        ctx.pause = PauseRequest(step_id="step1", reason="need review")
         raise WorkflowPaused("p1", "step1")
 
     with pytest.raises(WorkflowPaused):
