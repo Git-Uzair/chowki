@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from chowki.errors import ChowkiConfigError
+from chowki.guardrails.config import GuardrailConfig
 from chowki.state.blobs import BlobStore
 from chowki.state.crypto import KeyRing
 from chowki.state.pipeline import SnapshotPipeline
@@ -13,7 +14,6 @@ from chowki.state.redact import Redactor
 from chowki.storage import DEFAULT_DB_PATH, SQLiteStorage, StorageAdapter
 
 if TYPE_CHECKING:
-    from chowki.guardrails.config import GuardrailConfig  # type: ignore[import-not-found]
     from chowki.hitl.gateway import ChannelGateway  # type: ignore[import-not-found]
 
 #: Slot name (not a credential) under which the store keeps the resume HMAC bytes.
@@ -28,7 +28,7 @@ class ChowkiConfig:
     keyring: KeyRing | None = None
     redaction_hmac_key: bytes | None = None
     resume_secret: bytes | None = None
-    guardrails: GuardrailConfig | None = None
+    guardrails: GuardrailConfig = field(default_factory=GuardrailConfig)
     gateway: ChannelGateway | None = None
     blob_threshold_bytes: int = 4096
     db_path: Path = field(default_factory=lambda: DEFAULT_DB_PATH)
