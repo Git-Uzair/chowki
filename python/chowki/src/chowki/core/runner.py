@@ -98,13 +98,16 @@ def _close_run(
     except BaseException as snap_err:
         snapshot_exc = snap_err
 
+    # A run that asked to pause is not complete, even if the workflow body swallowed the
+    # WorkflowPaused: only a resume may move it off PAUSED.
+    swallowed_pause = exc is None and ctx.pause is not None
     try:
-        if exc is None and snapshot_exc is None:
+        if exc is None and snapshot_exc is None and not swallowed_pause:
             record.status = RunStatus.COMPLETED
             record.usage = ctx.usage
             ctx.engine.storage.put_run(record)
             ctx.engine.drop_pipeline(ctx.run_id)
-        elif isinstance(exc, WorkflowPaused) and snapshot_exc is None:
+        elif (isinstance(exc, WorkflowPaused) or swallowed_pause) and snapshot_exc is None:
             record.status = RunStatus.PAUSED
             record.pause = ctx.pause
             ctx.engine.storage.put_run(record)
@@ -240,6 +243,14 @@ def pause(
         permitted_actions=permitted_actions,
     )
     ctx.pause = pause_req
+    # Persisted here, not only in _close_run: the suspension must be durable even if the
+    # workflow body catches WorkflowPaused and never lets the wrapper see it.
+    record = ctx.engine.storage.get_run(ctx.run_id)
+    if record is not None:
+        record.status = RunStatus.PAUSED
+        record.pause = pause_req
+        record.updated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        ctx.engine.storage.put_run(record)
     # wired in Task 21
     raise WorkflowPaused(ctx.run_id, step_id, token=token)
 
