@@ -9,7 +9,7 @@ import structlog
 
 from chowki.errors import InfiniteLoopDetected
 from chowki.guardrails.config import GuardrailConfig
-from chowki.state.addressing import content_hash
+from chowki.state.canonical import content_hash
 from chowki.types import JSONValue
 
 _SEM_MAX: Final[int] = 512
@@ -76,10 +76,7 @@ class LoopDetector:
         if self.steps > self._cfg.max_steps_per_run:
             raise InfiniteLoopDetected(f"max_steps_per_run={self._cfg.max_steps_per_run} exceeded")
 
-        if isinstance(kwargs, str) and kwargs.startswith("sha256:"):
-            sig = kwargs
-        else:
-            sig = content_hash({"tool": tool_name, "kwargs": kwargs})
+        sig = content_hash({"tool": tool_name, "kwargs": kwargs})
         self._window.append(sig)
         if self._window.count(sig) >= self._cfg.tool_loop_max_repeats:
             raise InfiniteLoopDetected(
@@ -92,21 +89,23 @@ class LoopDetector:
             return
 
         self._texts.append(text)
-        if len(self._texts) == self._cfg.semantic_loop_consecutive:
-            sims = [
-                normalized_levenshtein(self._texts[i], self._texts[i + 1])
-                for i in range(len(self._texts) - 1)
-            ]
-            if all(s >= self._cfg.semantic_loop_pause_threshold for s in sims):
-                n = self._cfg.semantic_loop_consecutive
-                raise InfiniteLoopDetected(
-                    f"prompt similarity {sims[-1]:.3f} across {n} consecutive steps"
-                )
-            if all(s >= self._cfg.semantic_loop_warn_threshold for s in sims):
-                msg = f"high prompt similarity ({sims[-1]:.3f}) detected across consecutive steps"
-                self.warnings.append(msg)
-                logger = structlog.get_logger()
-                logger.warning("chowki_semantic_loop_warning", similarity=sims[-1])
+        if len(self._texts) < max(2, self._cfg.semantic_loop_consecutive):
+            return
+
+        sims = [
+            normalized_levenshtein(self._texts[i], self._texts[i + 1])
+            for i in range(len(self._texts) - 1)
+        ]
+        if all(s >= self._cfg.semantic_loop_pause_threshold for s in sims):
+            n = self._cfg.semantic_loop_consecutive
+            raise InfiniteLoopDetected(
+                f"prompt similarity {sims[-1]:.3f} across {n} consecutive steps"
+            )
+        if all(s >= self._cfg.semantic_loop_warn_threshold for s in sims):
+            msg = f"high prompt similarity ({sims[-1]:.3f}) detected across consecutive steps"
+            self.warnings.append(msg)
+            logger = structlog.get_logger()
+            logger.warning("chowki_semantic_loop_warning", similarity=sims[-1])
 
     def record_transition(self, src: str, dst: str) -> None:
         if not self._cfg.enabled:
@@ -116,6 +115,37 @@ class LoopDetector:
         self._edges.append(edge)
         self._edge_counts[edge] += 1
         self._check_cycles()
+
+    def _find_cycle(self, adj: dict[str, list[str]]) -> list[str] | None:
+        color: dict[str, int] = {}
+        path: list[str] = []
+
+        for start_node in adj:
+            if color.get(start_node, 0) != 0:
+                continue
+
+            color[start_node] = 1
+            path.append(start_node)
+            stack = [(start_node, iter(adj.get(start_node, [])))]
+
+            while stack:
+                curr, neighbors = stack[-1]
+                nxt = next(neighbors, None)
+                if nxt is not None:
+                    nxt_color = color.get(nxt, 0)
+                    if nxt_color == 1:
+                        cycle_start = path.index(nxt)
+                        return [*path[cycle_start:], nxt]
+                    if nxt_color == 0:
+                        color[nxt] = 1
+                        path.append(nxt)
+                        stack.append((nxt, iter(adj.get(nxt, []))))
+                else:
+                    stack.pop()
+                    path.pop()
+                    color[curr] = 2
+
+        return None
 
     def _check_cycles(self) -> None:
         if not any(count >= 2 for count in self._edge_counts.values()):
@@ -129,31 +159,7 @@ class LoopDetector:
         if not adj:
             return
 
-        visited: set[str] = set()
-        rec_stack: set[str] = set()
-        path: list[str] = []
-
-        def dfs(node: str) -> list[str] | None:
-            visited.add(node)
-            rec_stack.add(node)
-            path.append(node)
-
-            for neighbor in adj.get(node, []):
-                if neighbor not in visited:
-                    cycle = dfs(neighbor)
-                    if cycle:
-                        return cycle
-                elif neighbor in rec_stack:
-                    cycle_start_idx = path.index(neighbor)
-                    return [*path[cycle_start_idx:], neighbor]
-
-            rec_stack.remove(node)
-            path.pop()
-            return None
-
-        for node in list(adj.keys()):
-            if node not in visited:
-                cycle = dfs(node)
-                if cycle:
-                    cycle_str = " -> ".join(cycle)
-                    raise InfiniteLoopDetected(f"delegation cycle detected: {cycle_str}")
+        cycle = self._find_cycle(adj)
+        if cycle:
+            cycle_str = " -> ".join(cycle)
+            raise InfiniteLoopDetected(f"delegation cycle detected: {cycle_str}")
