@@ -25,12 +25,16 @@ class BlobStore:
 
     def __init__(self) -> None:
         self._store: dict[str, bytes] = {}
+        self.has_escapes: bool = False
 
     def put(self, data: bytes) -> str:
         """Store bytes and return content-addressed reference string."""
         ref = make_blob_ref(data)
         self._store[ref] = data
         return ref
+
+    def mark_escape(self) -> None:
+        self.has_escapes = True
 
     def get(self, ref: str) -> bytes:
         """Retrieve stored bytes for reference, raising SnapshotIntegrityError if missing."""
@@ -46,6 +50,7 @@ class BlobStore:
 
     def clear(self) -> None:
         self._store.clear()
+        self.has_escapes = False
 
 
 def extract_string(value: str, store: BlobStore, *, threshold_bytes: int = 4096) -> str:
@@ -55,6 +60,7 @@ def extract_string(value: str, store: BlobStore, *, threshold_bytes: int = 4096)
     redaction walk instead of paying for a second full traversal of the state tree.
     """
     if value.startswith("ref") and value.startswith((BLOB_REF_PREFIX, ESCAPE_PREFIX)):
+        store.mark_escape()
         return ESCAPE_PREFIX + value
     # A code point encodes to at most 4 UTF-8 bytes, so shorter strings cannot cross
     # the threshold and never need encoding to find out.

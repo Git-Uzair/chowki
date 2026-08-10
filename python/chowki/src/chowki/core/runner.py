@@ -4,13 +4,13 @@ import functools
 import inspect
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Any, NoReturn, ParamSpec, TypeVar, cast, overload
+from typing import Any, ParamSpec, TypeVar, cast, overload
 from uuid import uuid4
 
 import structlog
 
 from chowki.config import ChowkiEngine, get_engine
-from chowki.core.context import RunContext, current_run, run_scope
+from chowki.core.context import RunContext, StateDict, current_run, run_scope
 from chowki.errors import ChowkiConfigError, HumanRejectedError, WorkflowPaused
 from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus
 
@@ -52,11 +52,19 @@ def _open_run(
         all_steps = engine.storage.list_steps(rid)
         max_snap_idx = max((e.step_index for e in all_snapshots), default=-1)
         max_step_ord = max((s.ordinal for s in all_steps), default=-1)
-        start_ordinal = max(max_snap_idx, max_step_ord) + 1
+        start_ordinal = (
+            0 if rid in engine.pending_resume_state else max(max_snap_idx, max_step_ord) + 1
+        )
 
         snaps = engine.storage.snapshots_for_resume(rid)
         state: dict[str, Any] = {}
-        if resuming and snaps:
+        resumed_step_ids: set[str] = set()
+
+        if rid in engine.pending_resume_state:
+            res_step_id, pending_state = engine.pending_resume_state.pop(rid)
+            resumed_step_ids.add(res_step_id)
+            state = StateDict(pending_state)
+        elif resuming and snaps:
             loaded = engine.pipeline_for(rid).load(snaps)
             if isinstance(loaded, dict):
                 state = loaded
@@ -67,6 +75,7 @@ def _open_run(
             engine=engine,
             state=state,
             resuming=resuming,
+            resumed_step_ids=resumed_step_ids,
             _ordinal=start_ordinal,
         )
         ctx.loops.reset()
@@ -227,14 +236,22 @@ def pause(
     permitted_actions: Sequence[str] = ("APPROVE", "REJECT"),
     reviewers: Sequence[str] = (),
     channel: str = "console",
-) -> NoReturn:
+) -> Any:
     """Suspend a run at a step boundary and mint a scope-bound, single-use resume token."""
     ctx = current_run()
+    ordinal = ctx.next_ordinal()
+    step_id = f"pause#{ordinal}"
+
+    if step_id in ctx.resumed_step_ids:
+        ctx.resumed_step_ids.remove(step_id)
+        ctx.pause = None
+        if isinstance(ctx.state, StateDict):
+            ctx.state.unfreeze()
+        return None
+
     redacted_payload = (
         cast(JSONObject, ctx.engine.redactor.redact(payload)) if payload is not None else {}
     )
-    ordinal = ctx.next_ordinal()
-    step_id = f"pause#{ordinal}"
     # The pause boundary is the state a resume must see. ctx.state is the live dict the
     # workflow keeps mutating, so it has to be frozen here rather than by _close_run.
     ctx.engine.pipeline_for(ctx.run_id).snapshot(
