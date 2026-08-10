@@ -21,6 +21,7 @@ _SYSTEM_FIELDS: Final[frozenset[str]] = frozenset(
         "original_state_hash",
         "patched_state_hash",
         "verification_details",
+        "json_patch",
     }
 )
 
