@@ -82,7 +82,8 @@ def test_secrets_never_reach_the_audit_log() -> None:
     from chowki.state.redact import Redactor
 
     secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
-    log = AuditLog(MemoryStorage(), redactor=Redactor(hmac_key=b"k"))
+    redactor = Redactor(hmac_key=b"k")
+    log = AuditLog(MemoryStorage(), redactor=redactor)
     log.append(
         build_audit_record(
             run_id="r",
@@ -91,7 +92,7 @@ def test_secrets_never_reach_the_audit_log() -> None:
             actor={},
             original_state_hash="h",
             patched_state_hash="h",
-            json_patch=[{"op": "replace", "path": "/key", "value": secret}],
+            json_patch=redactor.redact([{"op": "replace", "path": "/key", "value": secret}]),
             nonce="n",
         )
     )
@@ -103,7 +104,8 @@ def test_audit_log_preserves_high_entropy_run_id_and_system_metadata() -> None:
 
     high_entropy_run_id = "Zk9x2Lq7Rt4vNb8Wm3Ys6Pd1Ae"
     secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
-    log = AuditLog(MemoryStorage(), redactor=Redactor(hmac_key=b"k"))
+    redactor = Redactor(hmac_key=b"k")
+    log = AuditLog(MemoryStorage(), redactor=redactor)
 
     rec = build_audit_record(
         run_id=high_entropy_run_id,
@@ -112,7 +114,7 @@ def test_audit_log_preserves_high_entropy_run_id_and_system_metadata() -> None:
         actor={"user_id": "U123456", "token": secret},
         original_state_hash="sha256:" + "a" * 64,
         patched_state_hash="sha256:" + "b" * 64,
-        json_patch=[{"op": "replace", "path": "/key", "value": secret}],
+        json_patch=redactor.redact([{"op": "replace", "path": "/key", "value": secret}]),
         nonce="n123",
         note="Approved secret " + secret,
     )

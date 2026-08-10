@@ -797,6 +797,8 @@ def test_a_sensitive_key_edit_links_the_provenance_chain(engine: ChowkiEngine) -
         engine=engine,
     )
     assert res.value == "done"
+    run = engine.storage.get_run("r_sens2")
+    assert run is not None and run.status is RunStatus.COMPLETED
 
     audits = engine.storage.list_audit(run_id="r_sens2")
     assert len(audits) == 2
