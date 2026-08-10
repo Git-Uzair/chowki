@@ -4,7 +4,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from chowki.guardrails.budget import BudgetTracker
 from chowki.guardrails.loops import LoopDetector
@@ -19,15 +19,20 @@ class StateDict(dict[str, Any]):
     by unpatched step re-executions during warm resume.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, frozen_keys: set[str] | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._frozen_keys: set[str] = set(self.keys())
+        self._frozen_keys: set[str] = set(frozen_keys) if frozen_keys is not None else set()
 
     def unfreeze(self) -> None:
         self._frozen_keys.clear()
 
     def __setitem__(self, key: str, value: Any) -> None:
         if key in self._frozen_keys:
+            current = self.get(key)
+            if isinstance(current, dict) and isinstance(value, dict):
+                merged: dict[str, Any] = dict(cast(dict[str, Any], value))
+                merged.update(cast(dict[str, Any], current))
+                super().__setitem__(key, merged)
             return
         super().__setitem__(key, value)
 

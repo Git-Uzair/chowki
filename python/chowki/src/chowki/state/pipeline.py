@@ -38,13 +38,13 @@ from chowki.types import SCHEMA_VERSION, JSONValue, SnapshotEnvelope, SnapshotKi
 
 
 def _copy_containers(value: Any) -> Any:
-    """Fast shallow copy of dict and list container structures."""
+    """Recursively copy dict and list container structures to isolate nested items."""
     if isinstance(value, dict):
-        d = cast(Any, value)
+        d = cast(dict[str, Any], value)
         return {k: _copy_containers(v) for k, v in d.items()}
     if isinstance(value, list):
-        lst = cast(Any, value)
-        return list(lst)
+        lst = cast(list[object], value)
+        return [_copy_containers(x) for x in lst]
     return value
 
 
@@ -216,10 +216,7 @@ class SnapshotPipeline:
             raise ChowkiStateError("no valid base snapshot found in envelopes")
 
         stripped_state = chain.materialize()
-        if len(self._blobs) > 0 or getattr(self._blobs, "has_escapes", False):
-            restored_state = cast(JSONValue, inline_blobs(stripped_state, self._blobs))
-        else:
-            restored_state = stripped_state
+        restored_state = cast(JSONValue, inline_blobs(stripped_state, self._blobs))
 
         self._runs[run_id] = _RunState(
             base_bytes=base_bytes,

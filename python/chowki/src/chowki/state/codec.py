@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Final, TypeVar, cast
@@ -77,9 +76,8 @@ def unseal(env: SnapshotEnvelope) -> JSONValue:
             f"(v{SCHEMA_VERSION}); upgrade chowki"
         )
 
-    digest = hashlib.sha256(env.payload).hexdigest()
-    if env.state_hash != "sha256:" + digest:
-        computed_hash = "sha256:" + digest
+    computed_hash = hash_bytes(env.payload)
+    if env.state_hash != computed_hash:
         raise SnapshotIntegrityError(
             f"state_hash mismatch: envelope has {env.state_hash}, payload hash is {computed_hash}"
         )

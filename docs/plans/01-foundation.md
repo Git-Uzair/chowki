@@ -4885,10 +4885,11 @@ def pause(
 
 ## Task 20 — `chowki.resume()`: warm resume with state patching
 
-**Status:** In Progress / Unresolved (`VERDICT: FAIL` on Attempt 1)
+**Status:** COMPLETED
 
 **Attempt Ledger:**
 - attempt 1: Implementation of `resume()` + fast patch & codec optimizations -> FAIL (`_try_fast_patch` mutation bug causing duplicate appends, `materialize()` in_place corruptions, `_copy_containers` shallow copy list sharing bug, `inline_blobs` process-local state bug on restart, broad `TypeError` catch in `resume()`, `msgspec.Struct` `replace()` bug on ESCALATE, two-gate pause fall-through loop in `runner.py`, `StateDict.__setitem__` discarding pre-pause writes, missing docstrings/registry notes, RFC 6902 resolution duplication).
+- attempt 2: Fixed all 11 verifier findings across `delta.py`, `pipeline.py`, `resume.py`, `runner.py`, `context.py`, and `codec.py`. All 18 unit tests, full test suite (368 unit + 4 integration + 14 benchmarks) pass, and local CI succeeded. -> PASS
 
 **Verifier Findings to Fix in Next Session:**
 1. **`python/chowki/src/chowki/state/delta.py:255`**: `_try_fast_patch` with `in_place=True` mutates `base` before returning `False`, then `jsonpatch` fallback re-applies the whole patch to that already mutated object (causes duplicate appends).
