@@ -87,16 +87,22 @@ def _close_run(
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     record.updated_at_utc = now
 
+    # A paused run already snapshotted its state inside pause(). Snapshotting again would
+    # record whatever the workflow body did after the pause -- state that was never
+    # committed at the pause boundary -- as the state a resume loads.
+    paused = ctx.pause is not None and (exc is None or isinstance(exc, WorkflowPaused))
+
     snapshot_exc: BaseException | None = None
-    try:
-        ctx.engine.pipeline_for(ctx.run_id).snapshot(
-            ctx.state,
-            run_id=ctx.run_id,
-            workflow=ctx.workflow,
-            step_index=ctx.next_ordinal(),
-        )
-    except BaseException as snap_err:
-        snapshot_exc = snap_err
+    if not paused:
+        try:
+            ctx.engine.pipeline_for(ctx.run_id).snapshot(
+                ctx.state,
+                run_id=ctx.run_id,
+                workflow=ctx.workflow,
+                step_index=ctx.next_ordinal(),
+            )
+        except BaseException as snap_err:
+            snapshot_exc = snap_err
 
     # A run that asked to pause is not complete, even if the workflow body swallowed the
     # WorkflowPaused: only a resume may move it off PAUSED.
@@ -227,7 +233,16 @@ def pause(
     redacted_payload = (
         cast(JSONObject, ctx.engine.redactor.redact(payload)) if payload is not None else {}
     )
-    step_id = f"pause#{ctx.next_ordinal()}"
+    ordinal = ctx.next_ordinal()
+    step_id = f"pause#{ordinal}"
+    # The pause boundary is the state a resume must see. ctx.state is the live dict the
+    # workflow keeps mutating, so it has to be frozen here rather than by _close_run.
+    ctx.engine.pipeline_for(ctx.run_id).snapshot(
+        ctx.state,
+        run_id=ctx.run_id,
+        workflow=ctx.workflow,
+        step_index=ordinal,
+    )
     pause_req = PauseRequest(
         step_id=step_id,
         reason=reason,
