@@ -723,3 +723,81 @@ def test_state_hash_alignment_with_secrets(engine: ChowkiEngine) -> None:
     # Content hash of the persisted state of record must match state_hash_after
     persisted_state = probe_state_of_record(engine, run_id)
     assert content_hash(persisted_state) == result.state_hash_after
+
+
+def test_an_edit_under_a_sensitive_key_hashes_the_state_of_record(engine: ChowkiEngine) -> None:
+    """`state_hash_after` must describe the document the run actually continues from.
+
+    A value written under a key the redactor treats as sensitive is the case where the
+    two routes to that document can disagree: `resume()` computes the hash, while the
+    replay rebuilds the state from the patch recorded in the audit log.
+    """
+    from chowki.state.canonical import content_hash
+
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
+
+    @workflow(engine=engine)
+    def wf() -> str:
+        current_run().state["api_key"] = "initial"
+        pause(reason="gate", permitted_actions=("EDIT",))
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as exc:
+        wf(run_id="r_sens")
+    token = exc.value.token
+    assert token is not None
+
+    result = resume(
+        run_id="r_sens",
+        token=token,
+        decision=Decision.EDIT,
+        patch=[{"op": "replace", "path": "/api_key", "value": secret}],
+        workflow_fn=wf,
+        engine=engine,
+    )
+    assert result.value == "done"
+    assert content_hash(probe_state_of_record(engine, "r_sens")) == result.state_hash_after
+    assert secret not in str(probe_state_of_record(engine, "r_sens"))
+    assert secret not in str(engine.storage.list_audit(run_id="r_sens"))
+
+
+def test_a_sensitive_key_edit_links_the_provenance_chain(engine: ChowkiEngine) -> None:
+    """Gate N+1 must see exactly the state gate N's record says it left behind."""
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
+
+    @workflow(engine=engine)
+    def two_gates() -> str:
+        current_run().state["api_key"] = "initial"
+        pause(reason="gate1", permitted_actions=("APPROVE", "EDIT"))
+        pause(reason="gate2", permitted_actions=("APPROVE",))
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as exc1:
+        two_gates(run_id="r_sens2")
+    token1 = exc1.value.token
+    assert token1 is not None
+
+    with pytest.raises(WorkflowPaused) as exc2:
+        resume(
+            run_id="r_sens2",
+            token=token1,
+            decision=Decision.EDIT,
+            patch=[{"op": "replace", "path": "/api_key", "value": secret}],
+            workflow_fn=two_gates,
+            engine=engine,
+        )
+    token2 = exc2.value.token
+    assert token2 is not None
+
+    res = resume(
+        run_id="r_sens2",
+        token=token2,
+        decision=Decision.APPROVE,
+        workflow_fn=two_gates,
+        engine=engine,
+    )
+    assert res.value == "done"
+
+    audits = engine.storage.list_audit(run_id="r_sens2")
+    assert len(audits) == 2
+    assert audits[1]["original_state_hash"] == audits[0]["patched_state_hash"]

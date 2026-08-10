@@ -129,3 +129,36 @@ def test_audit_log_preserves_high_entropy_run_id_and_system_metadata() -> None:
     assert stored["patched_state_hash"] == "sha256:" + "b" * 64
     assert cast(dict[str, Any], stored["verification_details"])["nonce"] == "n123"
     assert secret not in str(stored)
+
+
+def test_appending_an_already_redacted_patch_stores_it_unchanged() -> None:
+    """`resume()` redacts the human patch once and hashes the state that patch produces.
+
+    The log's own redaction pass must therefore be a fixpoint over a patch that is
+    already redacted: if it rewrote the ops, the replay would rebuild a state whose hash
+    no longer matched the `patched_state_hash` recorded beside it.
+    """
+    from chowki.state.redact import Redactor
+
+    redactor = Redactor(hmac_key=b"k")
+    raw = [
+        {"op": "replace", "path": "/api_key", "value": "sk-" + "A1b2C3d4E5f6G7h8I9j0"},
+        {"op": "replace", "path": "/nested", "value": {"api_key": "plain"}},
+        {"op": "remove", "path": "/gone"},
+    ]
+    redacted = redactor.redact(raw)
+
+    log = AuditLog(MemoryStorage(), redactor=redactor)
+    log.append(
+        build_audit_record(
+            run_id="r",
+            step_id="s",
+            action="EDIT",
+            actor={},
+            original_state_hash="h",
+            patched_state_hash="h",
+            json_patch=redacted,
+            nonce="n",
+        )
+    )
+    assert log.entries(run_id="r")[0]["json_patch"] == redacted
