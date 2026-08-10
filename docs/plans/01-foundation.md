@@ -4885,28 +4885,25 @@ def pause(
 
 ## Task 20 — `chowki.resume()`: warm resume with state patching
 
-**Status:** Attempt 3 implemented by @opus-coder — pending `@verifier`
+**Status:** Attempt 4 implemented by @opus-coder — pending `@verifier`
 
 **Attempt Ledger:**
 - attempt 1: Implementation of `resume()` + fast patch & codec optimizations -> FAIL (`_try_fast_patch` mutation bug causing duplicate appends, `materialize()` in_place corruptions, `_copy_containers` shallow copy list sharing bug, `inline_blobs` process-local state bug on restart, broad `TypeError` catch in `resume()`, `msgspec.Struct` `replace()` bug on ESCALATE, two-gate pause fall-through loop in `runner.py`, `StateDict.__setitem__` discarding pre-pause writes, missing docstrings/registry notes, RFC 6902 resolution duplication).
 - attempt 2: Per-key overwrite filter in StateDict & two-pass _try_fast_patch -> FAIL (two-pass fast patch accepts sequentially conflicting ops like `[remove /a, remove /a]` or `[remove /items/0, add /items/3]` returning corrupted list instead of `ChowkiStateError`; `pop()` default swallows missing member removal; `StateDict` dict merge re-adds deleted/replaced keys from pre-pause assignments; `frozen_keys` forgotten on multi-gate workflow second resume resetting human edits; `patched_state_hash` mismatch with executed state).
+- attempt 3 (@opus-coder): Decided state written as BASE over pause boundary index & gate patch re-applied from audit log -> FAIL (`_persist_state_of_record` assumes boundary index is not overwritten by re-execution; steps before gate re-running with changed args/unencodable results overwrite pre-boundary snapshot indices, creating snapshot chain `[(0,DELTA),(1,BASE),(2,DELTA)]` where DELTA diff fails against BASE document on cold load / gate 2 resume).
 
-- attempt 3 (@opus-coder): the human's decision is no longer a filter over the live state
-  dict. Its RFC 6902 patch is read from the audit log and re-applied by `pause()` at the
-  gate it was made at, on every re-execution, so deletions and replacements survive later
-  gates, later resumes and a restart; the decided state is also written to storage as a
-  BASE over the pause boundary index (`_persist_state_of_record`), and the re-execution is
-  seeded with the reviewed state so the patch applies exactly once. `_try_fast_patch`
-  validates each op against the working copy immediately before applying it and bails to
-  `jsonpatch` with zero effect on `base`; `StateDict` is deleted. All 5 findings below are
-  addressed; 394 tests, ruff, pyright, mypy and `scripts/ci_local.py` pass.
+- attempt 4 (@opus-coder): snapshot indices are no longer step ordinals. `RunContext`
+  gains `next_snapshot_index()`, seeded in `_open_run` from `max(stored step_index) + 1`,
+  and every writer (`_succeed`, `pause`, `_close_run`) allocates from it, while ordinals
+  keep restarting at 0 so the replay still reproduces `pause#N` gate ids.
+  `_persist_state_of_record` writes the decided BASE at a fresh index above every stored
+  snapshot, and the resumed execution starts above that, so nothing is ever written below
+  the newest BASE. `start_ordinal` is gone. Both findings below are addressed; 395 tests,
+  ruff, pyright, mypy, layout and `scripts/ci_local.py` pass.
 
-**Verifier Findings from Attempt 2 (all addressed by attempt 3):**
-1. **RFC 6902 Fast Patch Validation (`python/chowki/src/chowki/state/delta.py`)**: Two-pass validation evaluates all ops against pre-mutation state, missing sequential dependencies (e.g. `[remove /a, remove /a]` or `[remove /items/0, add /items/3]`). Apply ops sequentially on a working copy (or fallback to `jsonpatch`) and fail immediately on precondition failure. Remove `, None` defaults on `pop()` calls so missing member removals raise `ChowkiStateError`.
-2. **Authoritative Patched State Persistence (`python/chowki/src/chowki/core/resume.py`, `context.py`, `runner.py`)**: Make patched state the authoritative snapshot persisted and loaded by the pipeline so replayed pre-pause assignments do not resurrect replaced/deleted keys. `StateDict` must properly support key deletions instead of shallow dict merging that re-introduces pre-pause keys.
-3. **Multi-gate Edit Persistence (`python/chowki/src/chowki/core/resume.py`, `runner.py`)**: Human edits applied at gate 1 must persist across subsequent resume gates (e.g. APPROVE at gate 2 must retain human edit from gate 1).
-4. **State Hash Parity**: `patched_state_hash` in audit log must equal `content_hash` of the state observed by the resumed body.
-5. **Test Utility Integrity**: Ensure `test_finding2_materialize_handles_complex_ops_in_delta_chain` properly tests the `materialize()` `in_place` fix.
+**Verifier Findings from Attempt 3 (all addressed by attempt 4):**
+1. **Snapshot Index Collision on Resume Re-execution (`python/chowki/src/chowki/core/resume.py`)**: `_persist_state_of_record` writes the decided state as BASE at the boundary index assuming re-execution won't overwrite indices below it. Steps prior to the gate re-running with changed args write snapshots at indices below the BASE, producing broken DELTA/BASE snapshot chains on cold load or gate 2 resume (`ChowkiStateError`). Write the decided state at an index that cannot be overwritten by pre-boundary re-execution, or prevent pre-boundary step index rewrites.
+2. **Regression Test Requirement**: Add a regression test with a step that re-runs before the gate with changed args, then cold-loads the state of record and performs a gate 2 resume.
 
 **Goal:** ADR-004's payoff — apply a human decision plus an optional RFC 6902 patch to a
 paused run's state and continue with zero replay and zero repeated side effects.

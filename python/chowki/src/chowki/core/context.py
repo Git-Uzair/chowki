@@ -55,6 +55,7 @@ class RunContext:
     budget: BudgetTracker = field(init=False)
     _counters: dict[str, int] = field(default_factory=_default_counters)
     _ordinal: int = 0
+    _snapshot_index: int = 0
 
     def __post_init__(self) -> None:
         self.loops = LoopDetector(self.engine.config.guardrails)
@@ -73,9 +74,28 @@ class RunContext:
         return f"{name}#{n}"
 
     def next_ordinal(self) -> int:
-        """Monotonic per-run ordinal counter across all steps."""
+        """Monotonic per-run ordinal counter across all steps.
+
+        Ordinals are *identity*, not storage position: they restart at 0 on every
+        execution of the body so that a re-executed workflow reproduces the same
+        `pause#N` gate ids. Use :meth:`next_snapshot_index` for anything that writes.
+        """
         n = self._ordinal
         self._ordinal += 1
+        return n
+
+    def next_snapshot_index(self) -> int:
+        """Allocate the next unused snapshot index for this run.
+
+        It continues above every index already in storage, so a resumed execution can
+        never write over a snapshot an earlier execution wrote. Snapshot indices are
+        deliberately *not* ordinals: a replay reproduces ordinals by design, and a
+        replayed ordinal used as a storage key would overwrite the snapshot at that index
+        -- including the base a human decision was written to -- leaving every later
+        delta in the chain diffed against a document that no longer exists.
+        """
+        n = self._snapshot_index
+        self._snapshot_index += 1
         return n
 
 
