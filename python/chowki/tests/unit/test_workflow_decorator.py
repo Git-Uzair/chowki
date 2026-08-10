@@ -166,3 +166,94 @@ def test_workflow_paused_and_rejected_handling(engine: ChowkiEngine) -> None:
     assert run_rej is not None
     assert run_rej.status is RunStatus.REJECTED
     assert "rej1" not in engine._pipelines  # pyright: ignore[reportPrivateUsage]
+
+
+def test_resuming_stepless_workflow_multiple_times(engine: ChowkiEngine) -> None:
+    from typing import cast
+
+    @workflow(engine=engine)
+    def stepless() -> int:
+        cnt = cast(int, current_run().state.get("count", 0)) + 1
+        current_run().state["count"] = cnt
+        return cnt
+
+    assert stepless(run_id="stepless_run") == 1
+    assert stepless(run_id="stepless_run") == 2
+    assert stepless(run_id="stepless_run") == 3
+    run = engine.storage.get_run("stepless_run")
+    assert run is not None and run.status is RunStatus.COMPLETED
+
+
+def test_resuming_workflow_with_nosnapshot_step_multiple_times(engine: ChowkiEngine) -> None:
+    from typing import cast
+
+    @step(snapshot=False)
+    def no_snap_step() -> str:
+        return "val"
+
+    @workflow(engine=engine)
+    def wf_no_snap() -> int:
+        no_snap_step()
+        cnt = cast(int, current_run().state.get("count", 0)) + 1
+        current_run().state["count"] = cnt
+        return cnt
+
+    assert wf_no_snap(run_id="nosnap_run") == 1
+    assert wf_no_snap(run_id="nosnap_run") == 2
+    assert wf_no_snap(run_id="nosnap_run") == 3
+    run = engine.storage.get_run("nosnap_run")
+    assert run is not None and run.status is RunStatus.COMPLETED
+
+
+def test_snapshot_failure_in_close_run_marks_run_failed(engine: ChowkiEngine) -> None:
+    from typing import Any, cast
+
+    @workflow(engine=engine)
+    def bad_state_wf() -> None:
+        current_run().state["unsupported"] = cast(Any, object())
+
+    with pytest.raises(TypeError):
+        bad_state_wf(run_id="bad_snap_run")
+
+    run = engine.storage.get_run("bad_snap_run")
+    assert run is not None
+    assert run.status is RunStatus.FAILED
+
+
+def test_open_run_failure_marks_run_failed(engine: ChowkiEngine) -> None:
+    from chowki.errors import ChowkiStateError
+    from chowki.types import RunRecord, SnapshotEnvelope, SnapshotKind
+
+    rec = RunRecord(
+        run_id="bad_open_run",
+        workflow="wf",
+        tenant_id="default",
+        created_at_utc="2026-01-01T00:00:00Z",
+        updated_at_utc="2026-01-01T00:00:00Z",
+        status=RunStatus.RUNNING,
+    )
+    engine.storage.put_run(rec)
+
+    bad_env = SnapshotEnvelope(
+        v=1,
+        kind=SnapshotKind.DELTA,
+        run_id="bad_open_run",
+        workflow="wf",
+        tenant_id="default",
+        step_index=0,
+        state_hash="123",
+        created_at_utc="2026-01-01T00:00:00Z",
+        payload=b"invalid",
+    )
+    engine.storage.put_snapshot(bad_env)
+
+    @workflow(engine=engine)
+    def sample_wf() -> None:
+        pass
+
+    with pytest.raises(ChowkiStateError):
+        sample_wf(run_id="bad_open_run")
+
+    run = engine.storage.get_run("bad_open_run")
+    assert run is not None
+    assert run.status is RunStatus.FAILED
