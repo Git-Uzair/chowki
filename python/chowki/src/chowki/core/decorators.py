@@ -132,8 +132,7 @@ def _begin(
                 f"idempotency key {idempotency_key} is already claimed"
             )
 
-    # Guardrail pre-checks (Tasks 16-17) go here behind ctx.engine.guardrails
-    # wired in Task 16/17
+    ctx.loops.record(name, args_hash)
 
     started_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     record = StepRecord(

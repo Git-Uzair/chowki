@@ -69,6 +69,7 @@ def _open_run(
             resuming=resuming,
             _ordinal=start_ordinal,
         )
+        ctx.loops.reset()
         return ctx, record
     except BaseException:
         record.status = RunStatus.FAILED

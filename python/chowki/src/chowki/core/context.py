@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from chowki.guardrails.loops import LoopDetector
 from chowki.types import JSONObject, PauseRequest, StepRecord, Usage
 
 if TYPE_CHECKING:
@@ -34,8 +35,12 @@ class RunContext:
     usage: Usage = field(default_factory=Usage)
     step_records: dict[str, StepRecord] = field(default_factory=_default_step_records)
     pause: PauseRequest | None = None
+    loops: LoopDetector = field(init=False)
     _counters: dict[str, int] = field(default_factory=_default_counters)
     _ordinal: int = 0
+
+    def __post_init__(self) -> None:
+        self.loops = LoopDetector(self.engine.config.guardrails)
 
     def next_step_id(self, name: str) -> str:
         """In-memory ordinal counter for step identity.

@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import pytest
+
+from chowki.errors import InfiniteLoopDetected
+from chowki.guardrails.config import GuardrailConfig
+from chowki.guardrails.loops import LoopDetector, normalized_levenshtein
+
+
+def test_identical_tool_calls_trip_the_windowed_hash() -> None:
+    d = LoopDetector(GuardrailConfig())
+    for _ in range(2):
+        d.record("search", {"q": "python"})
+    with pytest.raises(InfiniteLoopDetected, match="repeat"):
+        d.record("search", {"q": "python"})
+
+
+def test_key_order_does_not_hide_a_duplicate() -> None:
+    d = LoopDetector(GuardrailConfig())
+    d.record("t", {"a": 1, "b": 2})
+    d.record("t", {"b": 2, "a": 1})
+    with pytest.raises(InfiniteLoopDetected):
+        d.record("t", {"a": 1, "b": 2})
+
+
+def test_distinct_calls_do_not_trip() -> None:
+    d = LoopDetector(GuardrailConfig())
+    for i in range(20):
+        d.record("search", {"q": f"query-{i}"})
+
+
+def test_the_window_slides() -> None:
+    """Two duplicates separated by enough distinct calls must not trip."""
+    d = LoopDetector(GuardrailConfig())
+    d.record("t", {"q": "x"})
+    for i in range(5):
+        d.record("t", {"q": f"other-{i}"})
+    d.record("t", {"q": "x"})
+    d.record("t", {"q": "x"})  # only 2 in window -> still fine
+
+
+def test_max_steps_per_run_is_enforced() -> None:
+    d = LoopDetector(GuardrailConfig(max_steps_per_run=3))
+    for i in range(3):
+        d.record("t", {"q": i})
+    with pytest.raises(InfiniteLoopDetected, match="max_steps_per_run"):
+        d.record("t", {"q": 99})
+
+
+def test_normalized_levenshtein_bounds() -> None:
+    assert normalized_levenshtein("", "") == 1.0
+    assert normalized_levenshtein("abc", "abc") == 1.0
+    assert normalized_levenshtein("abc", "xyz") == 0.0
+    assert 0.5 < normalized_levenshtein("kitten", "sitting") < 0.7
+
+
+def test_near_duplicate_prompts_trip_the_semantic_tier() -> None:
+    d = LoopDetector(GuardrailConfig())
+    base = "Search the internal wiki for the deployment runbook, revision "
+    with pytest.raises(InfiniteLoopDetected, match="similarity"):
+        for i in range(4):
+            d.record_text(f"{base}{i}")
+
+
+def test_warning_threshold_does_not_raise() -> None:
+    d = LoopDetector(GuardrailConfig(semantic_loop_pause_threshold=0.999))
+    base = "Search the internal wiki for the deployment runbook, revision "
+    for i in range(4):
+        d.record_text(f"{base}{i}")
+    assert d.warnings, "a 0.85-similarity streak must still emit a warning"
+
+
+def test_two_node_ping_pong_is_detected() -> None:
+    d = LoopDetector(GuardrailConfig())
+    with pytest.raises(InfiniteLoopDetected, match="cycle"):
+        for _ in range(3):
+            d.record_transition("agent_a", "agent_b")
+            d.record_transition("agent_b", "agent_a")
+
+
+def test_three_node_cycle_is_detected() -> None:
+    d = LoopDetector(GuardrailConfig())
+    with pytest.raises(InfiniteLoopDetected, match="cycle"):
+        for _ in range(3):
+            d.record_transition("a", "b")
+            d.record_transition("b", "c")
+            d.record_transition("c", "a")
+
+
+def test_a_linear_delegation_chain_is_not_a_cycle() -> None:
+    d = LoopDetector(GuardrailConfig())
+    for src, dst in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "e")]:
+        d.record_transition(src, dst)
+
+
+def test_detector_can_be_disabled() -> None:
+    d = LoopDetector(GuardrailConfig(enabled=False))
+    for _ in range(100):
+        d.record("search", {"q": "same"})
