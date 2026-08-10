@@ -1,12 +1,23 @@
+"""Warm resume engine with state patching (ADR-004).
+
+Warning (R4):
+    Every side effect in a Chowki workflow must live inside a `@chowki.step`.
+    Because `resume()` re-executes the workflow function body from the top,
+    any side effect outside a `@chowki.step` will be re-executed on warm resume.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
 
+from msgspec.structs import replace as msgspec_replace
+
 from chowki.config import ChowkiEngine, get_engine
+from chowki.core.context import StateDict
 from chowki.errors import (
     ChowkiStateError,
     ExpiredResumeToken,
@@ -30,6 +41,30 @@ class ResumeResult:
     state_hash_after: str
 
 
+def _extract_root_keys(patch: Patch | None) -> set[str]:
+    if not patch:
+        return set()
+    keys: set[str] = set()
+    for op in patch:
+        path = op.get("path")
+        if isinstance(path, str) and path.startswith("/"):
+            parts = path.lstrip("/").split("/")
+            if parts and parts[0]:
+                keys.add(parts[0])
+    return keys
+
+
+def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any:
+    try:
+        return workflow_fn(run_id=run_id)
+    except TypeError as exc:
+        if exc.__traceback__ is not None and exc.__traceback__.tb_next is not None:
+            raise
+        if "unexpected keyword argument" in str(exc) or "run_id" in str(exc):
+            return workflow_fn()
+        raise
+
+
 def resume(
     *,
     run_id: str,
@@ -41,6 +76,17 @@ def resume(
     actor: JSONObject | None = None,
     note: str | None = None,
 ) -> ResumeResult:
+    """Resume a paused workflow run with optional state patching and human decision.
+
+    Warning (R4):
+        Every side effect in a Chowki workflow must live inside a `@chowki.step`.
+        Because `resume()` re-executes the workflow function body from the top,
+        any side effect outside a `@chowki.step` will be re-executed on warm resume.
+
+    Note (Phase 2):
+        Workflow registry integration will allow resuming workflows by string name
+        rather than requiring explicit `workflow_fn` function reference.
+    """
     eff_engine = engine or get_engine()
 
     claims: ResumeClaims | None = None
@@ -132,7 +178,7 @@ def resume(
         if current_pause is not None:
             rev_val = actor.get("reviewers") if actor is not None else None
             revs = tuple(rev_val) if isinstance(rev_val, list) else current_pause.reviewers
-            run.pause = replace(current_pause, reviewers=cast(tuple[str, ...], revs))
+            run.pause = msgspec_replace(current_pause, reviewers=cast(tuple[str, ...], revs))
             eff_engine.storage.put_run(run)
         raise WorkflowPaused(run_id, claims.step_id, token=new_token)
 
@@ -162,12 +208,11 @@ def resume(
     run.status = RunStatus.RUNNING
     eff_engine.storage.put_run(run)
 
-    eff_engine.pending_resume_state[run_id] = (claims.step_id, state)
+    frozen_keys = _extract_root_keys(patch if decision is Decision.EDIT else None)
+    resumed_state = StateDict(state, frozen_keys=frozen_keys)
+    eff_engine.pending_resume_state[run_id] = (claims.step_id, resumed_state)
 
-    try:
-        val = workflow_fn(run_id=run_id)
-    except TypeError:
-        val = workflow_fn()
+    val = _invoke_workflow(workflow_fn, run_id)
 
     return ResumeResult(
         run_id=run_id,

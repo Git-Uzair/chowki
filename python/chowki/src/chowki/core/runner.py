@@ -60,10 +60,19 @@ def _open_run(
         state: dict[str, Any] = {}
         resumed_step_ids: set[str] = set()
 
+        audits = engine.storage.list_audit(run_id=rid)
+        for a in audits:
+            if a.get("action") in ("APPROVE", "EDIT"):
+                sid = a.get("step_id")
+                if isinstance(sid, str):
+                    resumed_step_ids.add(sid)
+
         if rid in engine.pending_resume_state:
             res_step_id, pending_state = engine.pending_resume_state.pop(rid)
             resumed_step_ids.add(res_step_id)
-            state = StateDict(pending_state)
+            state = (
+                pending_state if isinstance(pending_state, StateDict) else StateDict(pending_state)
+            )
         elif resuming and snaps:
             loaded = engine.pipeline_for(rid).load(snaps)
             if isinstance(loaded, dict):
