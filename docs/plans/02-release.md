@@ -82,6 +82,9 @@ Update the pinned public-API set (`rerun` joins `__all__`).
 ## Task 2 — Async-aware resume: `aresume` (fixes a verified bug)
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: implemented aresume and _decide helper -> FAIL (docs/features.md public API row omitted aresume)
 
 **Goal:** `resume()` on an **async** workflow currently returns an unawaited
 coroutine: the body never re-executes, the run is left RUNNING, and
