@@ -1,7 +1,7 @@
 """Normative hot-path performance budgets for chowki.
 
 Sources:
-  docs/research/00-synthesis.md:162-186   (per-step snapshot overhead breakdown)
+  docs/research/00-synthesis.md:171-193   (per-step snapshot overhead breakdown)
   docs/research/02-serialization.md:353-379 (component budgets, delta chain depth)
 
 A change to any number here is an architectural decision and requires a plan update,
