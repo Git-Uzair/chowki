@@ -158,6 +158,9 @@ run inspects via the engine keyring.
 ## Task 4 — CLI: `chowki` console script
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: implemented cli.py, __main__.py, test_cli.py -> FAIL (configure/imports outside try block, import order before engine build, console.py hint missing -m / --db options, test_gateway.py test missing explicit assertion)
 
 **Goal:** the operator surface for the launch demo, zero new dependencies (argparse).
 

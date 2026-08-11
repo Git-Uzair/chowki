@@ -296,3 +296,10 @@ def test_cli_error_handling(tmp_path: Path) -> None:
     res = run_cli(["--db", str(db_path), "runs", "show", "nonexistent-run-id"])
     assert res.returncode == 1
     assert "Error:" in res.stderr
+
+    # Test invalid module import catches ModuleNotFoundError and prints clean error
+    res_mod = run_cli(["-m", "nonexistent_module_xyz", "runs", "list"])
+    assert res_mod.returncode == 1
+    assert "Error:" in res_mod.stderr
+    assert "nonexistent_module_xyz" in res_mod.stderr
+    assert "Traceback" not in res_mod.stderr
