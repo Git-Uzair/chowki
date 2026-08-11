@@ -64,6 +64,8 @@ Hot-path order (MUST be preserved): **redact + blob-extract (one walk) → base/
 select → MessagePack-encode → hash → encrypt (optional) → dispatch**. Hash is over the
 **plaintext** encoding; encryption replaces `payload` and sets `key_id` + `nonce`.
 
+**Durability contract:** **synchronous dispatch is the contract** — state snapshots are flushed and committed synchronously to storage before a step returns; SIGKILL at any point after a step returns loses zero acknowledged step state.
+
 Encryption: AES-256-GCM, 32-byte keys, 96-bit random nonce per encryption, AAD =
 `"{tenant_id}:{run_id}:v{v}"` UTF-8 (binds tenant/run/schema — blocks cross-tenant
 ciphertext transplantation). Decrypt failures are indistinguishable (wrong key / wrong

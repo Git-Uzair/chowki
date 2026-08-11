@@ -87,8 +87,7 @@ on-disk format is Phase 1's, unchanged.
   gate, and the kill-mid-run → `rerun` demo (no re-spent tokens) — the launch GIF.
 - **Packaging & release engineering:** CHANGELOG, `v0.1.0` tag, TestPyPI dry run
   through `release.yml`, wheel smoke test, README overhaul, publish.
-- **Durability ratification (docs):** synchronous dispatch is the contract — a
-  snapshot is durable before the step returns; align research prose.
+- **Durability decision:** DECIDED — synchronous dispatch is the contract (state snapshots are committed synchronously to storage before a step returns; SIGKILL after step return loses zero acknowledged state).
 
 ## Phase 3 — Cross-SDK spec prep + Node/TypeScript SDK (`@chowki/core`)
 
