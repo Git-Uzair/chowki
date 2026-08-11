@@ -20,6 +20,8 @@
    Single-process / single-writer constraints, SQLite concurrency, non-UTF-8 redaction behavior, `<TypeName>` argument hash collapse, and defense-in-depth security guarantees.
 7. **[Resuming Workflows in Production](resuming-in-production.md)**
    Web app integration, FastAPI and Flask recipes, async background resumes, HTTP status mappings, and security best practices.
+8. **[Launch Checklist & Positioning](launch-checklist.md)**
+   Launch checklist, key differentiators against Temporal/LangGraph, zero-waste kill-demo narration, CLI approval flow, and secret redaction.
 
 ---
 

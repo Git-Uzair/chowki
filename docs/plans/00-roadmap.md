@@ -19,7 +19,7 @@ describe how those documents were produced, not this roadmap.
 |---|---|---|
 | 0 | Repo scaffold (uv workspace, harness, CI, benchmarks) | **DONE** |
 | 1 | `chowki-py` core MVP + correctness hardening | **DONE** |
-| 2 | **Release v0.1** — operability core, embedding, docs, packaging, launch | **DONE** — plan: `docs/plans/02-release.md` (PyPI publish & tag push pending maintainer) |
+| 2 | **Release v0.1** — operability core, embedding, docs, packaging, launch | **DONE** (closing commit range `080caccd..a826cc3d`; PyPI publish & `v0.1.0` tag push pending maintainer execution) |
 | 3 | Cross-SDK spec prep + Node/TypeScript SDK (`@chowki/core`) | planned |
 | 4 | Reference HITL gateway channels (Slack first, Teams, full REST gateway) | planned |
 | 5 | Scale-out storage & security (Postgres/Redis, KMS, key lifecycle) | planned |
@@ -64,11 +64,11 @@ match them (see `docs/research/07-cross-sdk-parity.md`):
 
 ---
 
-## Phase 2 — Release v0.1
+## Phase 2 — Release v0.1 — DONE
 
-Everything between the current tree and a public PyPI release that can be showcased.
-Plan: `docs/plans/02-release.md`. No wire-format changes in this phase — the v0.1
-on-disk format is Phase 1's, unchanged.
+**Status:** **DONE** (closing commit range `080caccd..a826cc3d`; PyPI publish and `v0.1.0` tag push pending maintainer execution).
+
+Executed from `docs/plans/02-release.md` (completed and removed per roadmap working agreement). Everything between Phase 1 and a public PyPI release that can be showcased. No wire-format changes in this phase — the v0.1 on-disk format is Phase 1's, unchanged.
 
 - **Workflow registry + resume-by-name + `rerun`:** `chowki.resume(run_id, token,
   decision)` works without a function reference; recovered runs are re-runnable.

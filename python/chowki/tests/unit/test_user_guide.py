@@ -23,6 +23,7 @@ EXPECTED_PAGES = [
     "configuration.md",
     "limits.md",
     "resuming-in-production.md",
+    "launch-checklist.md",
 ]
 
 
