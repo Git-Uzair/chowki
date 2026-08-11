@@ -32,10 +32,11 @@ By default, `chowki` uses SQLite with Write-Ahead Logging (WAL) enabled:
 
 ## 4. `<TypeName>` Argument Hash Collapse
 
-When computing step idempotency keys, `chowki` hashes step input arguments:
-- Standard JSON/MessagePack serializable arguments (strings, numbers, lists, dicts) produce precise deterministic hashes.
-- For custom un-serializable argument types (e.g. custom class instances without `__dict__` or msgspec serialization), `chowki` falls back to hashing the object's type name (e.g., `<MyCustomClass>`).
-- **Impact:** Passing different instances of an un-serializable type with identical names as step arguments will collapse to the same argument hash. Use standard serializable types or `msgspec.Struct` / `Pydantic` models for step arguments.
+When computing step idempotency keys, `chowki` hashes step input arguments using a deterministic sanitizer:
+- Standard primitive arguments (`None`, `bool`, `int`, `float`, `str`), dictionaries, sets, and sequences (`list`, `tuple`) are sanitized and hashed by value.
+- Complex objects (like `msgspec.Struct` instances, Pydantic models, or custom class instances) are not expanded by the sanitizer and collapse to `<TypeName>` (e.g., `<MyStruct>`, `<UserModel>`).
+- **Impact:** Passing two different instances of a `msgspec.Struct` or Pydantic model with the same class name as step arguments will collapse to the same `<TypeName>` string in the argument hash.
+- **Best Practice:** To ensure distinct step argument hashes when using complex objects, pass primitive values, dicts, or convert models to dictionaries (e.g., `msgspec.structs.asdict(obj)` or `model.model_dump()`) before passing them to `@chowki.step`.
 
 ---
 

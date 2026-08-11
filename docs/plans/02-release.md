@@ -252,6 +252,11 @@ linked from `docs/features.md` (new "Embedded approval endpoints" row → ✅).
 ## Task 6 — User guide
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 2
+**Attempt Ledger:**
+- attempt 1: implemented user guide pages -> FAIL (API signature mismatches in docs: pause reason positional vs kwarg, recover_runs engine param, db_path default, step identity per-name counter, args_hash collapse, ConsoleGateway & retry matrix details)
+- attempt 2: corrected pause(reason=...), recover_runs(engine), step identity per-name counter, args_hash collapse, db_path CWD relative default, ConsoleGateway section, CLI -m/--db examples, retry matrix section -> FAIL (get_engine import path, retry_max_seconds default value 30.0, rerun behavior, recover_runs non-terminal run list behavior, tenant_id AAD detail, pause token HMAC statelessness detail)
+- attempt 3 (escalated): closed the *class* of failure instead of the instances — test_user_guide.py now resolves every documented `chowki.<name>` / `from chowki... import` against the package and compares every quoted default against `ChowkiConfig`/`GuardrailConfig`; then fixed get_engine import, retry_max_seconds/full-jitter formula, rerun and recover_runs semantics, tenant_id (AAD, no query filtering), stateless HMAC tokens with consumed nonces, plus source-checked corrections to ABORTED/FAILED, loop tiers, budget ceiling and unserializable-result behavior the same reviews would have found next
 
 **Goal:** the documentation a first-hour evaluator needs; currently none exists.
 Every page ends with "what can go wrong" — honesty is positioning.

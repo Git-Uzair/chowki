@@ -35,9 +35,9 @@ A **Run** represents a single invocation of a `@chowki.workflow` function. Each 
 - `RUNNING`: Actively executing steps.
 - `PAUSED`: Suspended at a human-in-the-loop gate or auto-pause guardrail.
 - `COMPLETED`: Finished execution and returned a final result.
-- `FAILED`: Terminated with an unhandled exception.
-- `ABORTED`: Canceled via administrative intervention.
-- `REJECTED`: Declined by a human reviewer.
+- `FAILED`: Terminated with an unhandled exception, including a guardrail breach the breaker chose to abort.
+- `ABORTED`: Reserved for administrative cancellation. `chowki` itself never sets it today — an aborting breaker records the run `FAILED`.
+- `REJECTED`: Declined by a human reviewer (`Decision.REJECT`).
 
 ---
 
@@ -46,6 +46,7 @@ A **Run** represents a single invocation of a `@chowki.workflow` function. Each 
 A **Step** is a discrete, atomic block of work decorated with `@chowki.step`. Steps are the unit of memoisation and durability in `chowki`:
 - When a step executes successfully, its return value is serialized and persisted to storage alongside its idempotency key.
 - On warm resume or crash replay, completed steps are recognized by their step identity and skipped, returning the previously recorded result instantly.
+- **Deserialization Behavior:** Results are decoded without a target type, so a `msgspec.Struct` returned by a step comes back from a replay as a plain Python `dict`, not as the original class. Do not rely on attribute access or `isinstance` on a replayed result.
 
 ```python
 import chowki
@@ -86,6 +87,6 @@ The **Engine** assembles storage adapters, keyrings, redactor filters, and snaps
 1. **Un-stepped Side Effects:**
    Side effects executed directly in the workflow body outside a `@chowki.step` will re-execute on every warm resume replay.
 2. **Non-Serializable Step Results:**
-   Step return values must be serializable (primitives, dicts, lists, msgspec Structs, Pydantic models). Un-serializable objects like raw open sockets or database connections cannot be persisted.
+   Return values the MessagePack codec cannot encode — open sockets, database connections, arbitrary custom classes — are not persisted. The step still completes: `chowki` records it `COMPLETED` with a diagnostic marker and flags the result as not replayable, so **the body runs again on the next warm resume** and its side effect happens a second time. Return primitives, dicts or lists from any step whose result matters.
 3. **In-Place State Mutation Without Steps:**
    Mutating global or outer-scope mutable variables outside step boundaries will not be captured in snapshot deltas. Pass data explicitly through step arguments and return values.

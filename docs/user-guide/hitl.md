@@ -27,7 +27,7 @@ def deployment_workflow(environment: str, config: dict[str, str]) -> str:
 
     # Pause execution for human review
     chowki.pause(
-        f"Approve production deployment to {environment}",
+        reason=f"Approve production deployment to {environment}",
         permitted_actions=("APPROVE", "REJECT", "EDIT"),
     )
 
@@ -94,40 +94,60 @@ Every resume decision is recorded in storage with an immutable audit entry:
 
 ## Console Gateway & CLI Walkthrough
 
-`chowki` provides an interactive CLI for inspecting and resuming runs.
+### Console Gateway (`ConsoleGateway`)
+
+`chowki` includes `ConsoleGateway` for terminal notifications, enabled by setting `ChowkiConfig(gateway=ConsoleGateway())`:
+
+```python
+import chowki
+from chowki.hitl import ConsoleGateway
+
+chowki.configure(gateway=ConsoleGateway())
+```
+
+When a workflow pauses, `ConsoleGateway` prints formatted notices to `stdout` with:
+- **Pause Details:** Run ID, Workflow name, Step ID, Reason, Payload, Permitted Actions, and Reviewers.
+- **Resume Token:** The generated HMAC-SHA256 single-use token.
+- **Pre-formatted CLI Commands:** Auto-generated commands including `-m <module>` and `--db <path>` flags when non-default settings or script entry points are detected.
+
+---
+
+## Interactive CLI Walkthrough
+
+`chowki` provides an interactive CLI for inspecting and resuming runs. When executing CLI commands against custom workflow modules or non-default database locations, use `-m <module>` and `--db <path>`:
 
 ### 1. List Workflow Runs
 
 ```bash
-chowki runs list --status PAUSED
+chowki --db ./.chowki/chowki.db runs list --status PAUSED
 ```
 
 ### 2. Inspect Run State & Pause Gate
 
 ```bash
-chowki runs show <run_id>
+chowki --db ./.chowki/chowki.db runs show <run_id>
 ```
 
 ### 3. Approve or Reject via CLI
 
 ```bash
 # Approve a paused run
-chowki resume <run_id> --token <token> --decision APPROVE --note "Approved by SRE"
+chowki --db ./.chowki/chowki.db -m my_module resume <run_id> --token <token> --decision APPROVE --note "Approved by SRE"
 
 # Reject a paused run
-chowki resume <run_id> --token <token> --decision REJECT --note "Rejected: missing approval ticket"
+chowki --db ./.chowki/chowki.db -m my_module resume <run_id> --token <token> --decision REJECT --note "Rejected: missing approval ticket"
 ```
 
 ### 4. Edit State via CLI
 
 ```bash
-chowki resume <run_id> --token <token> --decision EDIT --patch '[{"op": "replace", "path": "/timeout", "value": 30}]'
+chowki --db ./.chowki/chowki.db -m my_module resume <run_id> --token <token> --decision EDIT --patch '[{"op": "replace", "path": "/timeout", "value": 30}]'
 ```
 
 ### 5. Reissue Expired Token
 
 ```bash
-chowki reissue-token <run_id>
+chowki --db ./.chowki/chowki.db -m my_module reissue-token <run_id>
 ```
 
 ---
