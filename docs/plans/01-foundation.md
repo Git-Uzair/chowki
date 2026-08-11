@@ -5740,10 +5740,11 @@ def test_metrics_are_a_no_op_without_the_otel_sdk() -> None:
 
 ## Task 23 — End-to-end integration test and full-harness verification
 
-**Status:** COMPLETED
-**Failed Verify Cycles:** 0
+**Status:** IN PROGRESS
+**Failed Verify Cycles:** 2
 **Attempt Ledger:**
-- attempt 1: Implement `test_end_to_end.py` lifecycle and crash recovery tests, update `recover_runs` to handle failed runs, and pass full CI suite -> PASS
+- attempt 1: Implement test_end_to_end.py lifecycle and crash recovery tests, update recover_runs to re-arm FAILED runs -> FAIL (recover_runs incorrectly re-armed FAILED runs instead of only RUNNING runs; token replay test used generic ChowkiError on COMPLETED run)
+- attempt 2: Revert FAILED re-arm in recover_runs, pin ReplayedNonceError and partial workflow_fn in test_end_to_end.py, add test_recovery.py -> FAIL (unnecessary inert production edit in runner.py; plan ledger was not synchronized)
 
 **Goal:** One test that exercises the entire Phase 1 promise in a single run against real
 SQLite, plus a clean sweep of every command.
