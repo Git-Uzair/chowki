@@ -19,6 +19,8 @@ def test_production_logging_emits_json(capsys: pytest.CaptureFixture[str]) -> No
     assert payload["event"] == "chowki_test_event"
     assert payload["run_id"] == "r1"
     assert "timestamp" in payload
+    assert payload.get("logger") == "chowki"
+    assert payload.get("level") == "info"
 
 
 def test_metrics_are_a_no_op_without_the_otel_sdk() -> None:

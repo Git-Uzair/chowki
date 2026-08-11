@@ -23,9 +23,12 @@ except ImportError:  # pragma: no cover - source tree without a build
     __version__ = "0.0.0+unknown"
 
 
-def report_usage(usage: Usage) -> None:
+def report_usage(usage: Usage | int) -> None:
     """Report model token or cost usage for budget tracking in current run context."""
-    current_run().budget.add(usage)
+    u = usage if isinstance(usage, Usage) else Usage(input_tokens=usage)
+    ctx = current_run()
+    ctx.usage = ctx.usage.merge(u)
+    ctx.budget.add(u)
 
 
 __all__ = [

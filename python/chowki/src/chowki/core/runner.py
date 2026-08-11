@@ -14,7 +14,7 @@ from chowki.core.context import RunContext, current_run, run_scope
 from chowki.errors import ChowkiConfigError, ChowkiStateError, HumanRejectedError, WorkflowPaused
 from chowki.hitl.gateway import PauseNotice
 from chowki.state.delta import Patch, apply_patch
-from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus
+from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus, Usage
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -92,8 +92,11 @@ def _open_run(
             resuming=resuming,
             resumed_step_ids=resumed_step_ids,
             resumed_patches=resumed_patches,
+            usage=existing.usage if existing is not None else Usage(),
             _snapshot_index=start_snapshot_index,
         )
+        if existing is not None and existing.usage:
+            ctx.budget.total = existing.usage
         ctx.loops.reset()
         return ctx, record
     except BaseException:
@@ -141,13 +144,16 @@ def _close_run(
         elif (isinstance(exc, WorkflowPaused) or swallowed_pause) and snapshot_exc is None:
             record.status = RunStatus.PAUSED
             record.pause = ctx.pause
+            record.usage = ctx.usage
             ctx.engine.storage.put_run(record)
         elif isinstance(exc, HumanRejectedError) and snapshot_exc is None:
             record.status = RunStatus.REJECTED
+            record.usage = ctx.usage
             ctx.engine.storage.put_run(record)
             ctx.engine.drop_pipeline(ctx.run_id)
         else:
             record.status = RunStatus.FAILED
+            record.usage = ctx.usage
             ctx.engine.storage.put_run(record)
             ctx.engine.drop_pipeline(ctx.run_id)
     finally:
@@ -312,6 +318,7 @@ def pause(
     if record is not None:
         record.status = RunStatus.PAUSED
         record.pause = pause_req
+        record.usage = ctx.usage
         record.updated_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         ctx.engine.storage.put_run(record)
 
