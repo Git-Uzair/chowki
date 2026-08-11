@@ -23,6 +23,19 @@ For complete research background and detailed designs, see the [Research Documen
 - `chowki.storage`: Durable storage adapters (`SQLiteStorage`, `MemoryStorage`).
 - `chowki.telemetry`: Structured JSON logging (`configure_logging`) and OpenTelemetry tracing and metrics (`span_for_step`, `record_snapshot_metrics`).
 
+## Storage & Concurrency Model
+
+`chowki` uses a pluggable `StorageAdapter` architecture for state persistence.
+
+### SQLite Write Contention (Risk R7)
+
+The default embedded `SQLiteStorage` adapter is configured for single-process concurrency and local durability:
+
+- **Configuration:** Uses WAL mode (`PRAGMA journal_mode=WAL`), a 5 s busy timeout (`PRAGMA busy_timeout=5000`), `synchronous=NORMAL`, and process-level write locking (`threading.Lock`).
+- **Single-Process Focus:** Process-level write locks manage thread safety within a single process.
+- **Multi-Process Limitation:** Multi-process deployments operating against a single SQLite database file may encounter `database is locked` errors under concurrent write contention.
+- **Pluggable Architecture:** Multi-process and distributed production deployments are intended to use pluggable `StorageAdapter` implementations (such as PostgreSQL or Redis adapters in Phase 2). Connection pooling is intentionally omitted in `SQLiteStorage`.
+
 ## Performance Budgets
 
 Every hot-path operation in `chowki` is bounded by normative execution budgets defined in `python/chowki/tests/benchmarks/budgets.py`. Benchmarks enforce these budgets with a `1.5x` CI tolerance multiplier:
