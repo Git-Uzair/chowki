@@ -17,8 +17,9 @@ Phase numbers refer to [`docs/plans/00-roadmap.md`](plans/00-roadmap.md).
 You need to remember **one file: this one.** Everything else is linked from here.
 
 **To plan the next batch of Python work:** the current Python plan is
-[`docs/plans/02-operability.md`](plans/02-operability.md). When it is finished
-(every task COMPLETED, plan deleted, roadmap flipped), give your plan agent:
+[`docs/plans/02-release.md`](plans/02-release.md) — the path to publishing v0.1.
+When it is finished (every task COMPLETED, plan deleted, roadmap flipped), give your
+plan agent:
 
 > Read `docs/features.md`, `docs/plans/00-roadmap.md` (next non-DONE phase),
 > `docs/research/07-cross-sdk-parity.md`, the research doc named in that phase's
@@ -69,7 +70,8 @@ matrix in sync.
 | Warm resume | Newest BASE + deltas reconstruct state; re-execution from the top with memoisation; snapshot indices always continue above stored max (replays never overwrite history). | 07 §8/§9 | ✅ | ⬜ |
 | Side-effect rule (R4) | Every side effect must live inside a step: resume re-executes the workflow body. Documented in API docs, quickstart, `AGENTS.md`. | [03-durable-execution](research/03-durable-execution.md) | ✅ | ⬜ |
 | Single-writer-per-run | Concurrency inside one run (gather/`Promise.all` over steps) is undefined behavior until Phase 6 branch keys. Must be documented loudly in Node. | 07 §13 | ✅ (documented) | ⬜ |
-| Workflow registry | Register workflows by name at decoration; `resume`/`rerun` resolve by name so callers don't pass function references. | Phase 2 plan T1 | 🔜 2 | ⬜ |
+| Workflow registry | Register workflows by name at decoration; `resume`/`rerun` resolve by name so callers don't pass function references. | 02-release T1 | 🔜 2 | ⬜ |
+| Async-aware resume (`aresume`) | Awaitable resume for async workflows; sync `resume()` refuses coroutine workflows loudly instead of returning an unawaited coroutine (verified Phase 1 bug). | 02-release T2 | 🔜 2 | ⬜ |
 | Parallel steps, child workflows, cancellation, timers, signals | Deliberately absent everywhere until designed once. | 07 §13 | 🔜 6 | 🔜 6 |
 
 ## 2. State pipeline
@@ -84,13 +86,13 @@ matrix in sync.
 | Binary boundary | UTF-8-decodable bytes-likes are text-redacted (container type preserved); non-UTF-8 binary passes through by documented exemption; set/frozenset members redacted. | 07 §7 | ✅ | ⬜ |
 | Redaction always on | Cannot be disabled; encryption is opt-in. Human patches redacted once, per-op, under the destination key. | 07 §7 | ✅ | ⬜ |
 | Blob store | `ref:sha256:` content addressing for string leaves > 4 KB; `ref-lit:` escaping; **write-through durability before the referencing snapshot**; read-through on miss. | 07 §8 | ✅ | ⬜ |
-| Blob sub-object extraction | Extract large sub-*trees*, not only strings (new ref kind; wire-contract change). | Phase 2 plan T7 | 🔜 2 | ⬜ |
+| Blob sub-object extraction | Extract large sub-*trees*, not only strings (new ref kind; wire-contract change — post-release). | Phase 3 spec prep | 🔜 3 | ⬜ |
 | Delta engine | RFC 6902 emit add/replace/remove, accept all six ops; fast path for shallow ops; compaction at depth ≥ 50 or delta bytes > 0.20 × base. | 07 §8 | ✅ | ⬜ |
 | Codec + envelope | MessagePack payloads in a versioned envelope (field order fixed); integrity hash verified on unseal; migration registry keyed by from-version, sequential chain. | 07 §3 | ✅ | ⬜ |
 | Encryption at rest | AES-256-GCM, 96-bit random nonce, AAD = `tenant:run:vN`; KeyRing with active key id + rotation; env bootstrap; **off by default**. | 07 §3 | ✅ | ⬜ |
 | Canonical JSON + content hash | RFC 8785 subset: NFC, UTF-16 ordering for astral keys, dup-key error, `sha256:` prefix. ES number formatting = Phase 3 on both SDKs. | 07 §1 | ✅ | ⬜ |
 | Two hash semantics | `content_hash` = cross-SDK identity; envelope `state_hash` = writer-local integrity only. | 07 §2 | ✅ | ⬜ |
-| Durability semantics | Storage dispatch is synchronous by design decision pending ratification (write-behind queue evaluation). | Phase 2 plan T9 | 🔜 2 | ⬜ |
+| Durability semantics | Synchronous dispatch: a snapshot is durable before the step returns (ratification + doc alignment in flight). | 02-release T9 | 🔜 2 | ⬜ |
 
 ## 3. Suspension & HITL
 
@@ -122,11 +124,11 @@ matrix in sync.
 | Feature | Behavior | Detail | Py | Node |
 |---|---|---|---|---|
 | Adapter contract | Runs/steps/snapshots CRUD-without-delete, `snapshots_for_resume`, `max_snapshot_index`, claim/release idempotency, durable named secrets, lifetime single-use nonces, blobs, append-only audit, gateway handles, `close`. Copy-on-read/write. | 07 §11 | ✅ | ⬜ |
-| SQLite adapter (default) | `./.chowki/chowki.db`, WAL, busy_timeout 5 s, synchronous=NORMAL, process-level write lock, status/audit indices. Single-process by design (R7). | [overview](architecture/overview.md) | ✅ | ⬜ |
+| SQLite adapter (default) | `./.chowki/chowki.db`, WAL, busy_timeout 5 s, synchronous=NORMAL, process-level write lock, status/audit indices. Single-process by design (R7). | `chowki/storage/sqlite.py` docstring | ✅ | ⬜ |
 | In-memory adapter | Full contract for tests; secrets live as long as the store. | 07 §11 | ✅ | ⬜ |
 | Secret slots | `resume` (idempotency HMAC fallback), `redaction` (placeholder HMAC). Explicit `resume_secret` config wins for both keys + tokens; without it, tokens are ephemeral (warned). | 07 §12 | ✅ | ⬜ |
-| Atomic transitions | Multi-write state changes (audit + run flip) commit atomically. | Phase 2 plan T5 | 🔜 2 | ⬜ |
-| Retention & GC | `delete_run` cascade, expired-nonce purge, blob sweep; audit stays immutable. | Phase 2 plan T4 | 🔜 2 | ⬜ |
+| Atomic transitions | Multi-write state changes (audit + run flip) commit atomically. | Phase 3 spec prep | 🔜 3 | ⬜ |
+| Retention & GC | `delete_run` cascade, expired-nonce purge, blob sweep; audit stays immutable. | Phase 3 spec prep | 🔜 3 | ⬜ |
 | Postgres / Redis adapters, multi-process leasing | — | Phase 5 | 🔜 5 | 🔜 5 |
 
 ## 6. Telemetry
@@ -142,19 +144,38 @@ matrix in sync.
 |---|---|---|---|---|
 | Engine + config | Storage/tenant/encryption/keyring/redaction-key/resume-secret/guardrails/gateway/blob-threshold/db-path/tracing; process-global `configure()`/`get_engine()`/`reset_engine()`; per-run pipeline memo dropped on terminal states. | source: `chowki/config.py` | ✅ | ⬜ |
 | Public API surface | `step, workflow, pause, resume, configure, current_run, report_usage, record_text, record_transition, recover_runs, resumable_runs, reissue_token, release_step, complete_step` + types/errors. Pinned by a test. | `chowki/__init__.py` | ✅ | ⬜ |
-| Workflow registry + resume-by-name | See §1. | Phase 2 plan T1 | 🔜 2 | ⬜ |
-| CLI | `runs list/show`, `resume`, `reissue-token`, `release-step`, `complete-step`, `recover`, maintenance commands. | Phase 2 plan T2 | 🔜 2 | ⬜ |
-| Inspection API | `inspect_run(run_id)`: record, steps, latest redacted state, audit — without touching live pipeline state. | Phase 2 plan T3 | 🔜 2 | ⬜ |
-| Spec vectors + schemas | `spec/v1/` schemas for every wire struct + generated conformance vectors (canonical hashes, placeholders, tokens, args-hashes) with a CI drift gate. Node's conformance suite. | Phase 2 plan T6/T8 | 🔜 2 | consumes |
+| Workflow registry + resume-by-name | See §1. | 02-release T1 | 🔜 2 | ⬜ |
+| CLI | `runs list/show`, `resume` (sync + async), `reissue-token`, `release-step`, `complete-step`, `recover`, `rerun`. | 02-release T4 | 🔜 2 | ⬜ |
+| Inspection API | `inspect_run(run_id)`: record, steps, latest redacted state, audit — without touching live pipeline state. | 02-release T3 | 🔜 2 | ⬜ |
+| Embedded approval endpoints | Bring-your-own web app: documented FastAPI/Flask handlers calling `resume`/`aresume`, normative exception → HTTP mapping, background-execution pattern. chowki serves nothing; the token is the credential. | 02-release T5 | 🔜 2 | ⬜ |
+| User guide + flagship example + packaging | `docs/user-guide/`, the showcase agent (budget pause, approval gate, kill → `rerun`), CHANGELOG, PyPI release. | 02-release T6–T8 | 🔜 2 | — |
+| Spec vectors + schemas | `spec/v1/` schemas for every wire struct + generated conformance vectors (canonical hashes, placeholders, tokens, args-hashes) with a CI drift gate. Node's conformance suite. | Phase 3 spec prep | 🔜 3 | consumes |
 | Provider integrations (auto-usage), testing kit, outbox | — | Phase 6 | 🔜 6 | 🔜 6 |
 
 ---
 
 ## Cross-SDK conformance (how Node proves parity)
 
-Phase 2 produces `spec/v1/vectors/` — fixtures generated by the Python SDK. The Node
-plan must end with a conformance task asserting, for every fixture: identical
-`content_hash`, identical redaction placeholders (shared key), successful verification
-of Python-minted resume tokens (and vice versa), and lossless decode of Python-written
-snapshot envelopes. When those pass and every §1–§7 row shows ✅/✅, the SDKs are at
-parity by definition — no memory required.
+Phase 3's spec-prep produces `spec/v1/vectors/` — fixtures generated by the Python
+SDK. The Node plan must end with a conformance task asserting, for every fixture:
+identical `content_hash`, identical redaction placeholders (shared key), successful
+verification of Python-minted resume tokens (and vice versa), and lossless decode of
+Python-written snapshot envelopes. When those pass and every §1–§7 row shows ✅/✅,
+the SDKs are at parity by definition — no memory required.
+
+## Code map (Python reference implementation)
+
+Where each subsystem lives, for agents orienting in the source. Performance budgets
+are code, not prose: `python/chowki/tests/benchmarks/budgets.py` is the normative
+registry, enforced by the benchmark suite with a 1.5× CI tolerance.
+
+| Module | Contents |
+|---|---|
+| `chowki/config.py` | `ChowkiConfig`, `ChowkiEngine`, process-global `configure()`/`get_engine()`/`reset_engine()` |
+| `chowki/core/` | run context (`context.py`), step decorator + operator escape hatches (`decorators.py`), workflow runner + pause/auto-pause/recovery (`runner.py`), warm resume (`resume.py`) |
+| `chowki/state/` | snapshot pipeline (`pipeline.py`), redactor (`redact.py`), blobs (`blobs.py`), RFC 6902 deltas (`delta.py`), msgpack codec + envelope + migrations (`codec.py`), AES-GCM + KeyRing (`crypto.py`), canonical JSON + hashing (`canonical.py`) |
+| `chowki/guardrails/` | defaults (`config.py`), loop tiers (`loops.py`), budgets (`budget.py`), breaker (`breaker.py`) |
+| `chowki/hitl/` | gateway protocol + in-memory (`gateway.py`), console gateway (`console.py`), resume tokens (`tokens.py`), audit log (`audit.py`) |
+| `chowki/storage/` | adapter protocol (`base.py`), SQLite (`sqlite.py` — its docstring is the concurrency contract), in-memory (`memory.py`) |
+| `chowki/telemetry/` | structlog config (`logging.py`), OTel spans/metrics (`tracing.py`) |
+| `chowki/types.py`, `chowki/errors.py` | wire structs (field order = format), error taxonomy + classifier |

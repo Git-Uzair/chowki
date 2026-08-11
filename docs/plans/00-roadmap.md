@@ -19,13 +19,15 @@ describe how those documents were produced, not this roadmap.
 |---|---|---|
 | 0 | Repo scaffold (uv workspace, harness, CI, benchmarks) | **DONE** |
 | 1 | `chowki-py` core MVP + correctness hardening | **DONE** |
-| 2 | Python operability & the cross-SDK spec | **in progress** — plan: `docs/plans/02-operability.md` |
-| 3 | Node/TypeScript SDK (`@chowki/core`) | planned |
-| 4 | Reference HITL gateway channels (Slack, Teams, REST) | planned |
+| 2 | **Release v0.1** — operability core, embedding, docs, packaging, launch | **in progress** — plan: `docs/plans/02-release.md` |
+| 3 | Cross-SDK spec prep + Node/TypeScript SDK (`@chowki/core`) | planned |
+| 4 | Reference HITL gateway channels (Slack first, Teams, full REST gateway) | planned |
 | 5 | Scale-out storage & security (Postgres/Redis, KMS, key lifecycle) | planned |
 | 6 | Advanced durability & ecosystem (outbox, timers, signals, integrations) | planned |
 
-`TODO(phase-N)` markers in code refer to this table.
+`TODO(phase-N)` markers in code refer to this table. (2026-08-11: the spec-prep items
+that briefly lived in Phase 2 — sub-object blobs, spec drift CI — moved to Phase 3 and
+their code markers were updated; release comes first.)
 
 ---
 
@@ -62,59 +64,66 @@ match them (see `docs/research/07-cross-sdk-parity.md`):
 
 ---
 
-## Phase 2 — Python operability & the cross-SDK spec
+## Phase 2 — Release v0.1
 
-Everything the Python SDK needs to be operable in anger, plus the language-neutral
-contract Phase 3 will be generated from. Prerequisite for Phase 3.
+Everything between the current tree and a public PyPI release that can be showcased.
+Plan: `docs/plans/02-release.md`. No wire-format changes in this phase — the v0.1
+on-disk format is Phase 1's, unchanged.
 
-- **Workflow registry:** `@chowki.workflow` optionally registers by name;
-  `chowki.resume(...)` and recovery APIs accept a workflow name instead of a function
-  reference (removes the `_invoke_workflow` TypeError heuristic in `core/resume.py`).
-- **Minimal CLI** (`python -m chowki` / console script): `runs list`, `runs show`,
-  `resume`, `reissue-token`, `release-step`, `complete-step`. Depends on the registry.
-- **Inspection API:** first-class read surface (`chowki.inspect(run_id)` → status,
-  steps, latest redacted state, audit trail) — the "inspect" leg of the control-plane
-  pitch; today callers must reach into `engine.storage`.
-- **Retention & GC:** `delete_run`, blob reference counting or mark-and-sweep against
-  live snapshots, expired-nonce purge as an explicit maintenance operation, audit
-  rotation policy. Nothing in storage may grow unboundedly without an operator story.
-- **Spec codegen automation (ADR-001):** `spec/scripts/` generation for Python and TS
-  models from `spec/v1/`, CI drift gate (`git diff --exit-code`), replacing the
-  `TODO(phase-2)` in `.github/workflows/ci.yml`.
-- **Cross-SDK parity spec:** encode the normative algorithms from
-  `docs/research/07-cross-sdk-parity.md` into `spec/v1/` (placeholder derivation,
-  canonical JSON incl. number formatting, args-hash sanitisation, step identity,
-  token format, envelope AAD, blob refs, cost representation).
-- **Adapter atomicity:** an atomic multi-write transition API on the storage contract
-  (resume currently writes audit + run + snapshot as separate autocommits) — designed
-  now so the Phase 5 Postgres adapter is not retrofitted.
-- **Blob sub-object extraction:** extract large sub-*objects*, not only strings
-  (`TODO(phase-2)` in `state/blobs.py`).
-- **Write-behind dispatch (decide, then do or drop):** the research budget line calls
-  the storage dispatch an "async in-process memory queue"; Phase 1 ships a synchronous
-  sink deliberately. Decide the durability semantics (what may be lost on SIGKILL),
-  implement the bounded queue with backpressure + flush-on-pause/close if kept, and
-  align the research docs either way.
+- **Workflow registry + resume-by-name + `rerun`:** `chowki.resume(run_id, token,
+  decision)` works without a function reference; recovered runs are re-runnable.
+- **Async-aware resume (`aresume`):** verified bug — `resume()` on an async workflow
+  returns an unawaited coroutine and the run never re-executes. Blocking for the
+  embed-in-your-web-app story.
+- **Inspection API** (`inspect_run`) and the **CLI** (`runs list/show`, `resume`,
+  `reissue-token`, `release-step`, `complete-step`, `recover`, `rerun`).
+- **Production resume guide:** copy-paste FastAPI/Flask handlers so users expose
+  approval endpoints from their *existing* apps (chowki serves nothing); exception →
+  HTTP status mapping; background-execution guidance; token-handling security notes.
+- **User guide** (`docs/user-guide/`): concepts, warm resume + the R4 side-effect
+  rule, guardrails + `report_usage` provider recipes, HITL, config/encryption, honest
+  limits page.
+- **Flagship example:** an LLM tool-use agent with a budget auto-pause, an approval
+  gate, and the kill-mid-run → `rerun` demo (no re-spent tokens) — the launch GIF.
+- **Packaging & release engineering:** CHANGELOG, `v0.1.0` tag, TestPyPI dry run
+  through `release.yml`, wheel smoke test, README overhaul, publish.
+- **Durability ratification (docs):** synchronous dispatch is the contract — a
+  snapshot is durable before the step returns; align research prose.
 
-## Phase 3 — Node/TypeScript SDK (`@chowki/core`)
+## Phase 3 — Cross-SDK spec prep + Node/TypeScript SDK (`@chowki/core`)
 
-Generated from the research docs (incl. `07-cross-sdk-parity.md`) and `spec/v1/`.
-Byte-level parity targets: canonical JSON + content hashes, redaction placeholders,
-resume-token verification, snapshot envelope decode (both directions), args-hash. The
-ES-number canonicalisation `TODO(phase-3)` in `state/canonical.py` lands here, on the
-Python side too. Toolchain decisions (package manager, build, test runner, benchmark
-harness) are open research items — `06-python-monorepo-standards.md` has no Node
-equivalent yet.
+First the spec-prep the Node port consumes, then the port itself.
+
+**Spec prep** (moved from the pre-release Phase 2 scope, 2026-08-11):
+- Adapter atomic-transition API (designed before the Phase 5 Postgres adapter).
+- Retention & GC: `delete_run`, expired-nonce purge, blob sweep as explicit
+  maintenance operations + CLI subcommands.
+- Blob sub-object extraction (`TODO(phase-3)` in `state/blobs.py`) — a wire-format
+  addition, versioned properly now that v0.1 is public.
+- `spec/v1/` schemas for every wire struct + **conformance vectors** generated by the
+  Python SDK with a CI drift gate (`TODO(phase-3)` in `.github/workflows/ci.yml`) —
+  Node's parity test suite.
+
+**Node SDK:** generated from `docs/features.md` (parity matrix) +
+`07-cross-sdk-parity.md` + `spec/v1/`. Byte-level parity targets: canonical JSON +
+content hashes (ES-number canonicalisation `TODO(phase-3)` in `state/canonical.py`
+lands here, on the Python side too), redaction placeholders, resume-token
+verification, envelope decode both directions, args-hash. Toolchain decisions per the
+amendment in `06-python-monorepo-standards.md`.
 
 ## Phase 4 — Reference HITL gateway channels
 
 The `ChannelGateway` protocol is designed against these payloads already
-(`05-hitl-gateway.md`): Slack Block Kit adapter (HMAC v0 signature verification,
-`response_url` vs `chat.update` policy), Teams Adaptive Cards 1.5/1.6 (JWKS/RS256
-ingress), REST/webhook gateway with signed callbacks and an optional workflow-registry
-integration, delivery failure handling (retry/redelivery/reminders for paused runs),
-and the approval-policy layer (`allowed_roles` enforcement, N-of-M, self-approval
-prevention) that the tokens already carry fields for.
+(`05-hitl-gateway.md`). **Slack ships first, immediately after the v0.1 launch** (the
+approve-from-Slack GIF is the showcase follow-up), preferring **Socket Mode** for
+ingress so the zero-infrastructure story holds (no public webhook URL); the HTTP
+Block Kit path (HMAC v0 signature verification, `response_url` vs `chat.update`
+policy) remains for teams that already have ingress. Then: Teams Adaptive Cards
+1.5/1.6 (JWKS/RS256 ingress), the full hosted REST/webhook gateway with signed
+callbacks (distinct from v0.1's embed-in-your-own-app recipes), delivery failure
+handling (retry/redelivery/reminders for paused runs), and the approval-policy layer
+(`allowed_roles` enforcement, N-of-M, self-approval prevention) that the tokens
+already carry fields for.
 
 ## Phase 5 — Scale-out storage & security
 

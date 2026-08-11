@@ -2,7 +2,7 @@
 
 `chowki` is an agent-native, in-process control plane and durable execution engine designed for Python and polyglot environments. It embeds directly into existing application codebases via lightweight decorators, providing zero-infrastructure warm resume, automated secret redaction, and active guardrails.
 
-**Planning anything? Start at [`docs/features.md`](docs/features.md)** — the complete language-agnostic feature catalog and Python/Node parity matrix, with the plan-generation workflow written into its header. The current work-in-progress plan is [`docs/plans/02-operability.md`](docs/plans/02-operability.md); phase scope lives in [`docs/plans/00-roadmap.md`](docs/plans/00-roadmap.md).
+**Planning anything? Start at [`docs/features.md`](docs/features.md)** — the complete language-agnostic feature catalog and Python/Node parity matrix, with the plan-generation workflow written into its header. The current work-in-progress plan is [`docs/plans/02-release.md`](docs/plans/02-release.md) (the path to publishing v0.1); phase scope lives in [`docs/plans/00-roadmap.md`](docs/plans/00-roadmap.md).
 
 ## Installation
 
