@@ -132,6 +132,48 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
         )
 
 
+def test_resume_across_engine_instances_restores_blob_extracted_state(tmp_path: Path) -> None:
+    """A string over the blob threshold must survive a restart: pause in one
+    engine, resume in a second engine on the same SQLite file. Blobs extracted
+    from state have to be as durable as the snapshots that reference them."""
+    db = tmp_path / "chowki.db"
+    big_doc = "D" * 6000  # over the 4096-byte default blob threshold
+
+    def build(eng: ChowkiEngine) -> Callable[..., str]:
+        @chowki.step
+        def load_doc() -> str:
+            return big_doc
+
+        @chowki.workflow(engine=eng, name="doc_review")
+        def doc_review() -> str:
+            ctx = current_run()
+            ctx.state["doc"] = load_doc()
+            chowki.pause(reason="review the document")
+            doc = ctx.state["doc"]
+            assert isinstance(doc, str)
+            return f"approved:{len(doc)}"
+
+        return doc_review
+
+    eng1 = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db), resume_secret=b"s" * 32))
+    with pytest.raises(chowki.WorkflowPaused) as excinfo:
+        build(eng1)(run_id="blob_run")
+    token = excinfo.value.token
+    assert token is not None
+    eng1.close()
+
+    eng2 = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db), resume_secret=b"s" * 32))
+    result = chowki.resume(
+        run_id="blob_run",
+        token=token,
+        decision=Decision.APPROVE,
+        workflow_fn=build(eng2),
+        engine=eng2,
+    )
+    assert result.value == "approved:6000"
+    eng2.close()
+
+
 def test_crash_recovery_across_engine_instances(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
