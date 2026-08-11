@@ -205,6 +205,7 @@ gateway message matches reality.
 **Failed Verify Cycles:** 1
 **Attempt Ledger:**
 - attempt 1: implemented resuming-in-production.md, fastapi_approvals.py, test_embedding_recipes.py -> FAIL (fastapi route params typed req: Any instead of ResumeRequest/BackgroundTasks, test file duplicated handler instead of testing fastapi_approvals.py, permitted_actions scoping note missing in guide)
+- attempt 2: annotated FastAPI route params req: ResumeRequest and background_tasks: BackgroundTasks, imported process_resume/aprocess_resume directly in test_embedding_recipes.py, added permitted_actions note and test coverage for EDIT/ESCALATE -> PASS
 - attempt 2: fixed fastapi route params (ResumeRequest/BackgroundTasks), directly imported/tested process_resume/aprocess_resume from fastapi_approvals.py, added permitted_actions test cases and guide documentation -> PASS
 
 **Goal:** the "REST endpoint" story, correctly scoped: **chowki serves nothing** —
@@ -250,7 +251,7 @@ linked from `docs/features.md` (new "Embedded approval endpoints" row → ✅).
 
 ## Task 6 — User guide
 
-**Status:** PENDING
+**Status:** COMPLETED
 
 **Goal:** the documentation a first-hour evaluator needs; currently none exists.
 Every page ends with "what can go wrong" — honesty is positioning.

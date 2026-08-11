@@ -4,6 +4,18 @@
 
 **Planning anything? Start at [`docs/features.md`](docs/features.md)** — the complete language-agnostic feature catalog and Python/Node parity matrix, with the plan-generation workflow written into its header. The current work-in-progress plan is [`docs/plans/02-release.md`](docs/plans/02-release.md) (the path to publishing v0.1); phase scope lives in [`docs/plans/00-roadmap.md`](docs/plans/00-roadmap.md).
 
+## User Guide & Documentation
+
+Explore the **[Chowki User Guide](docs/user-guide/index.md)** for detailed tutorials and architecture reference:
+
+- **[Core Concepts](docs/user-guide/concepts.md)** — Runs, steps, state, base/delta snapshots, and engine architecture.
+- **[Warm Resume & Durable Execution](docs/user-guide/warm-resume.md)** — Top-down function re-execution, step memoisation, **Rule R4**, crash recovery, and step overrides.
+- **[Guardrails & Loop Breakers](docs/user-guide/guardrails.md)** — Token/cost budgets, loop detection tiers (`record_text`, `record_transition`), and OpenAI/Anthropic recipes.
+- **[Human-in-the-Loop (HITL)](docs/user-guide/hitl.md)** — Pause gates, HMAC tokens, decisions (`APPROVE`, `REJECT`, `EDIT`, `ESCALATE`), and CLI walkthrough.
+- **[Configuration & Security](docs/user-guide/configuration.md)** — `ChowkiConfig`, `resume_secret`, AES-256-GCM encryption at rest, storage paths, and multi-tenancy.
+- **[Limits & Operational Boundaries](docs/user-guide/limits.md)** — Single-writer constraints, SQLite concurrency, non-UTF-8 redaction, and defense-in-depth guarantees.
+- **[Resuming Workflows in Production](docs/user-guide/resuming-in-production.md)** — FastAPI / Flask integration, async background tasks, and HTTP status mappings.
+
 ## Installation
 
 ```bash
