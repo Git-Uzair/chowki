@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chowki.dev/schemas/v1/snapshot-envelope.schema.json",
+  "title": "SnapshotEnvelope",
+  "description": "Versioned header wrapping every persisted chowki state payload.",
+  "type": "object",
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "Schema version indicator"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Unique identifier for the run"
+    },
+    "workflow": {
+      "type": "string",
+      "description": "Workflow identifier"
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant or organization identifier"
+    },
+    "step_index": {
+      "type": "integer",
+      "description": "Sequential snapshot index within the run"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["base", "delta"],
+      "description": "Snapshot type: base snapshot or patch delta"
+    },
+    "created_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp in ISO 8601 format"
+    },
+    "state_hash": {
+      "type": "string",
+      "description": "SHA-256 hash of the unencrypted payload"
+    },
+    "payload": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "description": "MessagePack encoded (and optionally encrypted) state payload bytes"
+    },
+    "parent_hash": {
+      "type": ["string", "null"],
+      "description": "Hash of the parent snapshot for delta chain verification"
+    },
+    "key_id": {
+      "type": ["string", "null"],
+      "description": "Key ID used for AES-256-GCM encryption"
+    },
+    "nonce": {
+      "type": ["string", "null"],
+      "contentEncoding": "base64",
+      "description": "Initialization vector / nonce for AES-256-GCM decryption"
+    },
+    "codec": {
+      "type": "string",
+      "default": "msgpack",
+      "description": "Codec used for state serialization"
+    }
+  },
+  "required": [
+    "v",
+    "run_id",
+    "workflow",
+    "tenant_id",
+    "step_index",
+    "kind",
+    "created_at_utc",
+    "state_hash",
+    "payload"
+  ],
+  "additionalProperties": false
+}

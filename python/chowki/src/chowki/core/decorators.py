@@ -22,6 +22,7 @@ from chowki.errors import ChowkiStorageError, HumanRejectedError, WorkflowPaused
 from chowki.guardrails.breaker import AnomalyBreaker, BreakerAction
 from chowki.state.canonical import content_hash
 from chowki.state.codec import decode_state, encode_state
+from chowki.telemetry.tracing import span_for_step
 from chowki.types import JSONValue, StepError, StepRecord, StepStatus
 
 _UNSERIALIZABLE: Final = "__chowki_unserializable__"
@@ -284,10 +285,15 @@ def step(
                 breaker = _get_breaker(ctx, retries)
                 initial_attempts = rec.attempts
                 attempt = 0
+                tracing_enabled = ctx.engine.config.tracing_enabled
                 while True:
                     rec.attempts = initial_attempts + attempt + 1
                     try:
-                        res = await fn(*args, **kwargs)
+                        if tracing_enabled:
+                            with span_for_step(step_name):
+                                res = await fn(*args, **kwargs)
+                        else:
+                            res = await fn(*args, **kwargs)
                         break
                     except (WorkflowPaused, HumanRejectedError):
                         raise
@@ -317,10 +323,15 @@ def step(
                 breaker = _get_breaker(ctx, retries)
                 initial_attempts = rec.attempts
                 attempt = 0
+                tracing_enabled = ctx.engine.config.tracing_enabled
                 while True:
                     rec.attempts = initial_attempts + attempt + 1
                     try:
-                        res = fn(*args, **kwargs)
+                        if tracing_enabled:
+                            with span_for_step(step_name):
+                                res = fn(*args, **kwargs)
+                        else:
+                            res = fn(*args, **kwargs)
                         break
                     except (WorkflowPaused, HumanRejectedError):
                         raise

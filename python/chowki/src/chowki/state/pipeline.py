@@ -34,6 +34,7 @@ from chowki.state.codec import decode_state, encode_state, unseal
 from chowki.state.crypto import KeyRing, decrypt, encrypt
 from chowki.state.delta import DeltaChain, Patch, make_patch
 from chowki.state.redact import Redactor
+from chowki.telemetry.tracing import record_snapshot_metrics
 from chowki.types import SCHEMA_VERSION, JSONValue, SnapshotEnvelope, SnapshotKind
 
 
@@ -78,6 +79,7 @@ class SnapshotPipeline:
         keyring: KeyRing | None = None,
         sink: Callable[[SnapshotEnvelope], None] | None = None,
         blob_threshold_bytes: int = 4096,
+        tracing_enabled: bool = False,
     ) -> None:
         self._redactor = redactor
         self._blobs = blobs
@@ -85,6 +87,7 @@ class SnapshotPipeline:
         self._keyring = keyring
         self._sink = sink
         self._blob_threshold_bytes = blob_threshold_bytes
+        self._tracing_enabled = tracing_enabled
         self._runs: dict[str, _RunState] = {}
 
     def snapshot(
@@ -175,7 +178,13 @@ class SnapshotPipeline:
         return cast(JSONValue, inline_blobs(reconstructed_stripped, self._blobs))
 
     def dispatch(self, env: SnapshotEnvelope) -> None:
-        """Invoke sink callback if present."""
+        """Invoke sink callback if present and record snapshot metrics when tracing is enabled."""
+        if self._tracing_enabled:
+            record_snapshot_metrics(
+                step=f"{env.workflow}:{env.step_index}",
+                byte_size=len(env.payload),
+                status="success",
+            )
         if self._sink is not None:
             self._sink(env)
 
