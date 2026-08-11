@@ -14,8 +14,13 @@ from chowki.telemetry.tracing import record_snapshot_metrics
 
 
 def test_production_logging_emits_json(capsys: pytest.CaptureFixture[str]) -> None:
-    configure_logging(environment="production")
-    structlog.get_logger().info("chowki_test_event", run_id="r1")
+    # configure_logging binds sys.stdout (here pytest's capture stream) into structlog's
+    # global config, so it must be reset or later tests log to a closed file.
+    try:
+        configure_logging(environment="production")
+        structlog.get_logger().info("chowki_test_event", run_id="r1")
+    finally:
+        structlog.reset_defaults()
     payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert payload["event"] == "chowki_test_event"
     assert payload["run_id"] == "r1"
