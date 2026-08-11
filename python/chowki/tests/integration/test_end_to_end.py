@@ -80,7 +80,8 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
     assert run.usage.billable_tokens == 1500
 
     # 3. Nothing on disk contains the credential, encrypted or not.
-    db_bytes = (tmp_path / "chowki.db").read_bytes()
+    db_bytes = b"".join(f.read_bytes() for f in tmp_path.glob("chowki.db*"))
+    assert b"e2e" in db_bytes  # Positive control: confirms db WAL payload is checked
     assert SECRET_KEY.encode() not in db_bytes
 
     # 4. Snapshots are encrypted at rest.
