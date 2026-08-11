@@ -8,6 +8,7 @@ Warning (R4):
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
@@ -102,6 +103,156 @@ def _confirm_gateway(
                 logger.exception("chowki_gateway_confirm_failed", run_id=run_id)
 
 
+def _decide(
+    *,
+    run_id: str,
+    token: str,
+    decision: Decision,
+    target_fn: Callable[..., Any],
+    run: RunRecord | None,
+    engine: ChowkiEngine,
+    patch: Patch | None = None,
+    actor: JSONObject | None = None,
+    note: str | None = None,
+) -> tuple[Callable[..., Any], str, str]:
+    claims: ResumeClaims | None = None
+    token_exc: Exception | None = None
+    try:
+        c = engine.tokens.verify(token, action=decision.value)
+        if c.run_id != run_id:
+            raise InvalidResumeToken(f"token was issued for run {c.run_id!r}, not {run_id!r}")
+        claims = c
+    except (ReplayedNonceError, ExpiredResumeToken):
+        raise
+    except InvalidResumeToken as err:
+        if "token was issued for" in str(err):
+            raise
+        token_exc = err
+    except Exception as err:
+        token_exc = err
+
+    if run is None or run.status is not RunStatus.PAUSED:
+        raise ChowkiStateError(f"chowki run {run_id} is not paused")
+
+    # Captured before the pause is cleared below: a gate re-applies the human patch
+    # when the replay falls through it, an auto-pause has no gate in the body.
+    pause_origin = run.pause.origin if run.pause is not None else "gate"
+
+    if token_exc is not None:
+        raise token_exc
+    if claims is None:
+        raise InvalidResumeToken("invalid resume token")
+
+    snaps = engine.storage.snapshots_for_resume(run_id)
+    raw_state = engine.pipeline_for(run_id).load(snaps)
+    # `reviewed` stays the state the human was shown; `state` becomes the decided state.
+    reviewed: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
+    state: dict[str, Any] = reviewed
+    state_hash_before = content_hash(reviewed)
+    audit_log = AuditLog(engine.storage, redactor=engine.redactor)
+
+    # The human's patch is redacted once, here, and only this form is ever used: it is
+    # what the decided state is computed from and what the audit log records. Redacting
+    # the two routes separately diverged under a sensitive key, where applying the raw
+    # value yields `[REDACTED:key_name:...]` while the replay -- which applies the audit
+    # log's already-redacted patch -- keeps the value's own `[REDACTED:<kind>:...]`
+    # placeholder, so `state_hash_after` described a document no replay could rebuild.
+    # `redact_patch`, not a plain `redact`, because an op's value must be judged by the
+    # key it is destined for: a human's `hunter2` is a secret only under `/password`.
+    effective_patch: Patch = redact_patch(engine.redactor, patch) if patch else []
+
+    if decision is Decision.REJECT:
+        audit_record = build_audit_record(
+            run_id=run_id,
+            step_id=claims.step_id,
+            action=decision.value,
+            actor=actor,
+            original_state_hash=state_hash_before,
+            patched_state_hash=state_hash_before,
+            json_patch=[],
+            nonce=claims.nonce,
+            note=note,
+        )
+        audit_log.append(audit_record)
+        _confirm_gateway(engine, run_id, decision, actor)
+        run.status = RunStatus.REJECTED
+        engine.storage.put_run(run)
+        engine.drop_pipeline(run_id)
+        raise HumanRejectedError(run_id, claims.step_id, note=note)
+
+    if decision is Decision.EDIT and effective_patch:
+        state = cast(dict[str, Any], apply_patch(state, effective_patch))
+    elif decision is Decision.ESCALATE:
+        current_pause = run.pause
+        permitted = (
+            current_pause.permitted_actions if current_pause is not None else ("APPROVE", "REJECT")
+        )
+        new_token = engine.tokens.issue(
+            run_id=run_id,
+            step_id=claims.step_id,
+            permitted_actions=permitted,
+        )
+        audit_record = build_audit_record(
+            run_id=run_id,
+            step_id=claims.step_id,
+            action=decision.value,
+            actor=actor,
+            original_state_hash=state_hash_before,
+            patched_state_hash=state_hash_before,
+            json_patch=effective_patch,
+            nonce=claims.nonce,
+            note=note,
+        )
+        audit_log.append(audit_record)
+        _confirm_gateway(engine, run_id, decision, actor)
+        if current_pause is not None:
+            rev_val = actor.get("reviewers") if actor is not None else None
+            revs = tuple(rev_val) if isinstance(rev_val, list) else current_pause.reviewers
+            run.pause = msgspec_replace(current_pause, reviewers=cast(tuple[str, ...], revs))
+            engine.storage.put_run(run)
+        raise WorkflowPaused(run_id, claims.step_id, token=new_token)
+
+    # The snapshot pipeline redacts everything it stores, so the decided state has to be
+    # redacted here too for `state_hash_after` to name the document that gets persisted:
+    # a patch value that is not itself a secret still becomes a placeholder when it lands
+    # under a sensitive key. Redaction is a fixpoint over its own placeholders, so the
+    # pipeline's second pass over this tree changes nothing.
+    state = engine.redactor.redact(state)
+    state_hash_after = content_hash(state)
+
+    audit_record = build_audit_record(
+        run_id=run_id,
+        step_id=claims.step_id,
+        action=decision.value,
+        actor=actor,
+        original_state_hash=state_hash_before,
+        patched_state_hash=state_hash_after,
+        json_patch=effective_patch,
+        nonce=claims.nonce,
+        note=note,
+    )
+    audit_log.append(audit_record)
+    _confirm_gateway(engine, run_id, decision, actor)
+
+    run.pause = None
+    run.status = RunStatus.RUNNING
+    engine.storage.put_run(run)
+
+    if state_hash_after != state_hash_before:
+        _persist_state_of_record(engine, run, state)
+
+    # A gate pause is seeded with the state the human reviewed, not the patched one:
+    # `pause()` applies the patch when it falls through the gate, which is the point in
+    # the body where the human's decision belongs, and seeding the patched state would
+    # apply the edit twice for any key the replay does not rewrite. An auto-pause has
+    # no gate anywhere in the body -- nothing would ever apply the patch -- so the
+    # decided (patched, redacted) state seeds the replay directly.
+    seed = reviewed if pause_origin == "gate" else state
+    engine.pending_resume_state[run_id] = (claims.step_id, seed)
+
+    return target_fn, state_hash_before, state_hash_after
+
+
 def resume(
     *,
     run_id: str,
@@ -135,142 +286,81 @@ def resume(
         raise ChowkiStateError(f"chowki run {run_id} is not paused")
     target_fn = _resolve_workflow(workflow_fn, wf_name)
 
-    claims: ResumeClaims | None = None
-    token_exc: Exception | None = None
-    try:
-        c = eff_engine.tokens.verify(token, action=decision.value)
-        if c.run_id != run_id:
-            raise InvalidResumeToken(f"token was issued for run {c.run_id!r}, not {run_id!r}")
-        claims = c
-    except (ReplayedNonceError, ExpiredResumeToken):
-        raise
-    except InvalidResumeToken as err:
-        if "token was issued for" in str(err):
-            raise
-        token_exc = err
-    except Exception as err:
-        token_exc = err
+    if inspect.iscoroutinefunction(target_fn):
+        raise ChowkiConfigError("async workflow: use chowki.aresume(...)")
 
-    if run is None or run.status is not RunStatus.PAUSED:
-        raise ChowkiStateError(f"chowki run {run_id} is not paused")
-
-    # Captured before the pause is cleared below: a gate re-applies the human patch
-    # when the replay falls through it, an auto-pause has no gate in the body.
-    pause_origin = run.pause.origin if run.pause is not None else "gate"
-
-    if token_exc is not None:
-        raise token_exc
-    if claims is None:
-        raise InvalidResumeToken("invalid resume token")
-
-    snaps = eff_engine.storage.snapshots_for_resume(run_id)
-    raw_state = eff_engine.pipeline_for(run_id).load(snaps)
-    # `reviewed` stays the state the human was shown; `state` becomes the decided state.
-    reviewed: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
-    state: dict[str, Any] = reviewed
-    state_hash_before = content_hash(reviewed)
-    audit_log = AuditLog(eff_engine.storage, redactor=eff_engine.redactor)
-
-    # The human's patch is redacted once, here, and only this form is ever used: it is
-    # what the decided state is computed from and what the audit log records. Redacting
-    # the two routes separately diverged under a sensitive key, where applying the raw
-    # value yields `[REDACTED:key_name:...]` while the replay -- which applies the audit
-    # log's already-redacted patch -- keeps the value's own `[REDACTED:<kind>:...]`
-    # placeholder, so `state_hash_after` described a document no replay could rebuild.
-    # `redact_patch`, not a plain `redact`, because an op's value must be judged by the
-    # key it is destined for: a human's `hunter2` is a secret only under `/password`.
-    effective_patch: Patch = redact_patch(eff_engine.redactor, patch) if patch else []
-
-    if decision is Decision.REJECT:
-        audit_record = build_audit_record(
-            run_id=run_id,
-            step_id=claims.step_id,
-            action=decision.value,
-            actor=actor,
-            original_state_hash=state_hash_before,
-            patched_state_hash=state_hash_before,
-            json_patch=[],
-            nonce=claims.nonce,
-            note=note,
-        )
-        audit_log.append(audit_record)
-        _confirm_gateway(eff_engine, run_id, decision, actor)
-        run.status = RunStatus.REJECTED
-        eff_engine.storage.put_run(run)
-        eff_engine.drop_pipeline(run_id)
-        raise HumanRejectedError(run_id, claims.step_id, note=note)
-
-    if decision is Decision.EDIT and effective_patch:
-        state = cast(dict[str, Any], apply_patch(state, effective_patch))
-    elif decision is Decision.ESCALATE:
-        current_pause = run.pause
-        permitted = (
-            current_pause.permitted_actions if current_pause is not None else ("APPROVE", "REJECT")
-        )
-        new_token = eff_engine.tokens.issue(
-            run_id=run_id,
-            step_id=claims.step_id,
-            permitted_actions=permitted,
-        )
-        audit_record = build_audit_record(
-            run_id=run_id,
-            step_id=claims.step_id,
-            action=decision.value,
-            actor=actor,
-            original_state_hash=state_hash_before,
-            patched_state_hash=state_hash_before,
-            json_patch=effective_patch,
-            nonce=claims.nonce,
-            note=note,
-        )
-        audit_log.append(audit_record)
-        _confirm_gateway(eff_engine, run_id, decision, actor)
-        if current_pause is not None:
-            rev_val = actor.get("reviewers") if actor is not None else None
-            revs = tuple(rev_val) if isinstance(rev_val, list) else current_pause.reviewers
-            run.pause = msgspec_replace(current_pause, reviewers=cast(tuple[str, ...], revs))
-            eff_engine.storage.put_run(run)
-        raise WorkflowPaused(run_id, claims.step_id, token=new_token)
-
-    # The snapshot pipeline redacts everything it stores, so the decided state has to be
-    # redacted here too for `state_hash_after` to name the document that gets persisted:
-    # a patch value that is not itself a secret still becomes a placeholder when it lands
-    # under a sensitive key. Redaction is a fixpoint over its own placeholders, so the
-    # pipeline's second pass over this tree changes nothing.
-    state = eff_engine.redactor.redact(state)
-    state_hash_after = content_hash(state)
-
-    audit_record = build_audit_record(
+    target_fn, state_hash_before, state_hash_after = _decide(
         run_id=run_id,
-        step_id=claims.step_id,
-        action=decision.value,
+        token=token,
+        decision=decision,
+        target_fn=target_fn,
+        run=run,
+        engine=eff_engine,
+        patch=patch,
         actor=actor,
-        original_state_hash=state_hash_before,
-        patched_state_hash=state_hash_after,
-        json_patch=effective_patch,
-        nonce=claims.nonce,
         note=note,
     )
-    audit_log.append(audit_record)
-    _confirm_gateway(eff_engine, run_id, decision, actor)
-
-    run.pause = None
-    run.status = RunStatus.RUNNING
-    eff_engine.storage.put_run(run)
-
-    if state_hash_after != state_hash_before:
-        _persist_state_of_record(eff_engine, run, state)
-
-    # A gate pause is seeded with the state the human reviewed, not the patched one:
-    # `pause()` applies the patch when it falls through the gate, which is the point in
-    # the body where the human's decision belongs, and seeding the patched state would
-    # apply the edit twice for any key the replay does not rewrite. An auto-pause has
-    # no gate anywhere in the body -- nothing would ever apply the patch -- so the
-    # decided (patched, redacted) state seeds the replay directly.
-    seed = reviewed if pause_origin == "gate" else state
-    eff_engine.pending_resume_state[run_id] = (claims.step_id, seed)
 
     val = _invoke_workflow(target_fn, run_id)
+
+    return ResumeResult(
+        run_id=run_id,
+        decision=decision,
+        value=val,
+        state_hash_before=state_hash_before,
+        state_hash_after=state_hash_after,
+    )
+
+
+async def aresume(
+    *,
+    run_id: str,
+    token: str,
+    decision: Decision,
+    workflow_fn: Callable[..., Any] | None = None,
+    workflow: str | None = None,
+    engine: ChowkiEngine | None = None,
+    patch: Patch | None = None,
+    actor: JSONObject | None = None,
+    note: str | None = None,
+) -> ResumeResult:
+    """Resume a paused workflow run (async-aware) with optional state patching and human decision.
+
+    Warning (R4):
+        Every side effect in a Chowki workflow must live inside a `@chowki.step`.
+        Because `aresume()` re-executes the workflow function body from the top,
+        any side effect outside a `@chowki.step` will be re-executed on warm resume.
+
+    Note (Phase 2):
+        Workflow registry resolves workflows by string name (`workflow=`) or from the
+        run record when `workflow_fn` is omitted.
+    """
+    eff_engine = engine or get_engine()
+
+    run = eff_engine.storage.get_run(run_id)
+
+    # Resolve workflow BEFORE consuming nonce / token verify / state mutations
+    wf_name = workflow if workflow is not None else (run.workflow if run is not None else "")
+    if run is None and workflow_fn is None and workflow is None:
+        raise ChowkiStateError(f"chowki run {run_id} is not paused")
+    target_fn = _resolve_workflow(workflow_fn, wf_name)
+
+    target_fn, state_hash_before, state_hash_after = _decide(
+        run_id=run_id,
+        token=token,
+        decision=decision,
+        target_fn=target_fn,
+        run=run,
+        engine=eff_engine,
+        patch=patch,
+        actor=actor,
+        note=note,
+    )
+
+    if inspect.iscoroutinefunction(target_fn):
+        val = await target_fn(run_id=run_id)
+    else:
+        val = _invoke_workflow(target_fn, run_id)
 
     return ResumeResult(
         run_id=run_id,

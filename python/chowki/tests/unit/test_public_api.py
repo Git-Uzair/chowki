@@ -26,6 +26,7 @@ def test_public_surface_is_exactly_as_documented() -> None:
         "StepStatus",
         "Usage",
         "WorkflowPaused",
+        "aresume",
         "complete_step",
         "configure",
         "current_run",
