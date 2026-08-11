@@ -1,6 +1,8 @@
 # python/chowki/tests/unit/test_gateway.py
 from __future__ import annotations
 
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -231,6 +233,94 @@ def test_console_gateway_hint_uses_the_engine_that_paused_the_run(
     out = capsys.readouterr().out
     assert f"To resume via CLI: chowki --db {custom_db} " in out
     engine.close()
+
+
+def _hint_after(label: str, out: str) -> str:
+    return next(line.split(label, 1)[1].strip() for line in out.splitlines() if label in line)
+
+
+def test_console_gateway_hints_are_shell_quoted_and_share_one_prefix(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    split_command: Callable[[str], list[str]],
+) -> None:
+    """Every printed command must be copy-paste executable, spaces in the path included.
+
+    A hint that is not quoted tokenises into a truncated `--db` value, and a
+    `reissue-token` hint without the `--db`/`-m` flags cannot reach the run at all.
+    """
+    from chowki.config import ChowkiConfig, reset_engine
+
+    monkeypatch.chdir(tmp_path)
+    reset_engine()
+    custom_db = tmp_path / "db dir with spaces" / "mydb.db"
+    engine = ChowkiEngine(ChowkiConfig(db_path=custom_db, gateway=ConsoleGateway()))
+
+    @workflow(engine=engine)
+    def spaced_pipeline() -> None:
+        pause(reason="review", permitted_actions=("APPROVE",))
+
+    with pytest.raises(WorkflowPaused):
+        spaced_pipeline(run_id="run-spaced")
+    out = capsys.readouterr().out
+    engine.close()
+
+    prefix = ["chowki", "--db", str(custom_db), "-m", spaced_pipeline.__module__]
+    assert split_command(_hint_after("To resume via CLI:", out)) == [
+        *prefix,
+        "resume",
+        "run-spaced",
+        "--token",
+        "<above>",
+        "--decision",
+        "APPROVE",
+    ]
+    assert split_command(_hint_after("Lost the token?", out)) == [
+        *prefix,
+        "reissue-token",
+        "run-spaced",
+    ]
+
+
+def test_console_gateway_hint_names_the_script_for_main_module_workflows(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A workflow defined in the entry script is importable as that script's stem."""
+    from chowki.config import reset_engine
+    from chowki.core.registry import register_workflow
+
+    monkeypatch.chdir(tmp_path)
+    reset_engine()
+
+    def script_wf() -> None: ...
+
+    script_wf.__module__ = "__main__"
+    register_workflow("script_wf", script_wf)
+    notice = PauseNotice(
+        run_id="run-main",
+        workflow="script_wf",
+        step_id="s#0",
+        reason="test",
+        payload={},
+        permitted_actions=("APPROVE",),
+        reviewers=(),
+        token="TOK4",
+        created_at_utc="2026-08-11T00:00:00Z",
+    )
+
+    monkeypatch.setattr(sys, "argv", [str(tmp_path / "demo_script.py")])
+    ConsoleGateway().notify(notice)
+    out = capsys.readouterr().out
+    assert _hint_after("To resume via CLI:", out).startswith("chowki -m demo_script resume")
+    assert _hint_after("Lost the token?", out) == "chowki -m demo_script reissue-token run-main"
+
+    # Nothing importable to name (`python -c ...`, a REPL) prints no `-m` at all.
+    monkeypatch.setattr(sys, "argv", ["-c"])
+    ConsoleGateway().notify(notice)
+    out = capsys.readouterr().out
+    assert _hint_after("To resume via CLI:", out).startswith("chowki resume run-main")
+    assert _hint_after("Lost the token?", out) == "chowki reissue-token run-main"
 
 
 def test_console_gateway_hint_creates_no_default_database(

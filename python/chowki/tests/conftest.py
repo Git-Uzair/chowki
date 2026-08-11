@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import os
+import shlex
+from collections.abc import Callable, Iterator
 
 import pytest
 
@@ -18,6 +20,22 @@ def autoclear_registry() -> Iterator[None]:
         yield
     finally:
         clear_registry()
+
+
+@pytest.fixture
+def split_command() -> Callable[[str], list[str]]:
+    """Tokenise a printed shell command back into argv the way the local shell would.
+
+    `shlex.split` in POSIX mode eats the backslashes of Windows paths, so Windows is
+    tokenised in non-POSIX mode and the quotes that mode keeps are stripped off.
+    """
+
+    def split(command: str) -> list[str]:
+        if os.name == "nt":
+            return [tok.strip('"') for tok in shlex.split(command, posix=False)]
+        return shlex.split(command)
+
+    return split
 
 
 @pytest.fixture

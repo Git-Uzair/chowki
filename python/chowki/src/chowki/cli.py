@@ -23,6 +23,7 @@ from chowki.core.inspection import inspect_run
 from chowki.core.resume import aresume, rerun
 from chowki.core.runner import recover_runs, reissue_token
 from chowki.errors import ChowkiError, WorkflowPaused
+from chowki.storage import DEFAULT_DB_PATH
 from chowki.types import Decision, RunStatus
 
 
@@ -33,8 +34,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--db",
-        default="./.chowki/chowki.db",
-        help="Path to SQLite database file (default: ./.chowki/chowki.db)",
+        default=str(DEFAULT_DB_PATH),
+        help=f"Path to SQLite database file (default: {DEFAULT_DB_PATH})",
     )
     parser.add_argument(
         "-m",
