@@ -45,3 +45,7 @@ All commands are executed from the repo root:
 ## 6. Test-Driven Development (TDD) Rule
 
 - Write the failing test first, confirm it fails for the expected reason, and then write implementation code.
+
+## 7. Workflow Side Effects Rule
+
+- Every side effect in a Chowki workflow must live inside a `@chowki.step`. Because `resume()` re-executes the workflow function body from the top, any side effect outside a `@chowki.step` will be re-executed on warm resume.

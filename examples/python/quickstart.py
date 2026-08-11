@@ -1,4 +1,10 @@
-"""Chowki Quickstart Example: workflow pause, console output, and warm resume."""
+"""Chowki Quickstart Example: workflow pause, console output, and warm resume.
+
+Note:
+    Every side effect in a Chowki workflow must live inside a `@chowki.step`.
+    Because `resume()` re-executes the workflow function body from the top,
+    any side effect outside a `@chowki.step` will be re-executed on warm resume.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +34,8 @@ def send_payment(proposal: dict[str, Any]) -> str:
 
 @chowki.workflow
 def payment_workflow(amount: int = 500, recipient: str = "unverified@example.com") -> str:
+    # All side effects must live inside @chowki.step functions because resume()
+    # re-executes the workflow function body from the top on warm resume.
     proposal = prepare_proposal(amount, recipient)
     chowki.current_run().state["proposal"] = proposal
 
