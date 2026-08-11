@@ -16,9 +16,16 @@ from typing import Any, Final, ParamSpec, TypeVar, cast, overload
 
 import structlog
 
+from chowki.config import ChowkiEngine, get_engine
 from chowki.core.context import RunContext, current_run, in_run
 from chowki.core.runner import pause, workflow
-from chowki.errors import ChowkiStorageError, HumanRejectedError, WorkflowPaused, classify
+from chowki.errors import (
+    ChowkiStateError,
+    ChowkiStorageError,
+    HumanRejectedError,
+    WorkflowPaused,
+    classify,
+)
 from chowki.guardrails.breaker import AnomalyBreaker, BreakerAction
 from chowki.state.canonical import content_hash
 from chowki.state.codec import decode_state, encode_state
@@ -136,13 +143,33 @@ def _begin(
         # about to happen for what must be the first time. The key is deterministic
         # (`03-durable-execution.md:73`), so a refusal means someone already owns this
         # effect -- a concurrent worker, or an earlier attempt of this run that died
-        # mid-step. Neither can be replayed safely; Task 18's breaker owns the policy
-        # for what to do about it.
+        # mid-step. The one refusal that IS safe to override: the key embeds
+        # run_id|step_id|args_hash under our secret, so a held claim next to a FAILED
+        # record for the same identity can only be our own earlier attempt, and that
+        # attempt's fate is known -- the body finished by raising. A RUNNING record (or
+        # no record at all) means the effect's fate is unknown, and only an operator
+        # who has checked the downstream system may release it.
         claimed = ctx.engine.storage.claim_idempotency_key(idempotency_key, args_hash=args_hash)
         if not claimed:
-            raise ChowkiStorageError(
-                f"step {step_id} of run {ctx.run_id} has an unfinished idempotent attempt: "
-                f"idempotency key {idempotency_key} is already claimed"
+            failed_before = (
+                existing is not None
+                and existing.status is StepStatus.FAILED
+                and existing.args_hash == args_hash
+            )
+            if not failed_before:
+                raise ChowkiStorageError(
+                    f"step {step_id} of run {ctx.run_id} has an unfinished idempotent attempt: "
+                    f"idempotency key {idempotency_key} is already claimed. If the owning "
+                    f"attempt is dead and the side effect did not happen, release it with "
+                    f"chowki.release_step({ctx.run_id!r}, {step_id!r}); if it did happen, "
+                    f"record it with chowki.complete_step(...)"
+                )
+            logger = structlog.get_logger()
+            logger.info(
+                "chowki_step_retry_after_failure",
+                step_id=step_id,
+                run_id=ctx.run_id,
+                previous_attempts=existing.attempts if existing is not None else 0,
             )
 
     ctx.loops.record(name, args_hash)
@@ -164,25 +191,30 @@ def _begin(
     return record, _MISSING
 
 
+def _encode_step_result(redactor: Any, result: Any) -> tuple[bytes, bool]:
+    """Redact and encode a step result, degrading to a diagnostic marker.
+
+    TypeError is the codec saying "no msgpack encoding exists for this type", which
+    is a legitimate result the run should survive. Every other encoder error is a
+    defect in the value (an out-of-range int, a non-finite float); swallowing it
+    here would report the step COMPLETED while discarding its real result.
+    The payload names the type for diagnostics only; `result_replayable` is what
+    `_begin` reads, so a step returning that same shape stays memoisable.
+    """
+    try:
+        redacted = cast(JSONValue, redactor.redact(result))
+        return encode_state(redacted), True
+    except TypeError:
+        return encode_state({_UNSERIALIZABLE: type(result).__name__}), False
+
+
 def _succeed(
     ctx: RunContext,
     record: StepRecord,
     result: Any,
     snapshot: bool,
 ) -> None:
-    replayable = True
-    try:
-        redacted = cast(JSONValue, ctx.engine.redactor.redact(result))
-        encoded_result = encode_state(redacted)
-    except TypeError:
-        # TypeError is the codec saying "no msgpack encoding exists for this type", which
-        # is a legitimate result the run should survive. Every other encoder error is a
-        # defect in the value (an out-of-range int, a non-finite float); swallowing it
-        # here would report the step COMPLETED while discarding its real result.
-        # The payload names the type for diagnostics only; `result_replayable` is what
-        # `_begin` reads, so a step returning that same shape stays memoisable.
-        replayable = False
-        encoded_result = encode_state({_UNSERIALIZABLE: type(result).__name__})
+    encoded_result, replayable = _encode_step_result(ctx.engine.redactor, result)
 
     record.status = StepStatus.COMPLETED
     record.ended_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -353,4 +385,63 @@ def step(
     return decorator
 
 
-__all__ = ["pause", "step", "workflow"]
+def release_step(run_id: str, step_id: str, *, engine: ChowkiEngine | None = None) -> bool:
+    """Release the idempotency claim of a step whose owning attempt is dead.
+
+    Operator escape hatch, never called on the normal execution path. Use it only
+    after confirming in the downstream system that the step's side effect did NOT
+    happen; the next execution of the run will run the step body again. If the
+    effect DID happen, use :func:`complete_step` instead. Returns whether a claim
+    was actually released. The step record is left as the dead attempt wrote it;
+    the re-execution overwrites it.
+    """
+    eff_engine = engine or get_engine()
+    record = eff_engine.storage.get_step(run_id, step_id)
+    if record is None:
+        raise ChowkiStateError(f"no step {step_id!r} recorded for run {run_id!r}")
+    released = eff_engine.storage.release_idempotency_key(record.idempotency_key)
+    logger = structlog.get_logger()
+    logger.warning(
+        "chowki_step_claim_released",
+        run_id=run_id,
+        step_id=step_id,
+        released=released,
+    )
+    return released
+
+
+def complete_step(
+    run_id: str,
+    step_id: str,
+    result: Any,
+    *,
+    engine: ChowkiEngine | None = None,
+) -> None:
+    """Record a dead step attempt as COMPLETED with an operator-supplied result.
+
+    Operator escape hatch, the counterpart of :func:`release_step`: use it after
+    confirming in the downstream system that the side effect DID happen. The next
+    execution of the run memoises ``result`` instead of running the body, provided
+    the step is called with the same arguments. The claim is left in place -- a
+    completed step never re-claims.
+    """
+    eff_engine = engine or get_engine()
+    record = eff_engine.storage.get_step(run_id, step_id)
+    if record is None:
+        raise ChowkiStateError(f"no step {step_id!r} recorded for run {run_id!r}")
+    encoded_result, replayable = _encode_step_result(eff_engine.redactor, result)
+    record.status = StepStatus.COMPLETED
+    record.ended_at_utc = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    record.result = encoded_result
+    record.result_replayable = replayable
+    eff_engine.storage.put_step(record)
+    logger = structlog.get_logger()
+    logger.warning(
+        "chowki_step_completed_by_operator",
+        run_id=run_id,
+        step_id=step_id,
+        result_replayable=replayable,
+    )
+
+
+__all__ = ["complete_step", "pause", "release_step", "step", "workflow"]

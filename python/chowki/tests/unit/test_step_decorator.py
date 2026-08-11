@@ -9,8 +9,8 @@ import pytest
 
 from chowki.config import ChowkiEngine
 from chowki.core.context import RunContext, run_scope
-from chowki.core.decorators import step
-from chowki.errors import ChowkiStorageError
+from chowki.core.decorators import complete_step, release_step, step
+from chowki.errors import ChowkiStorageError, ToolExecutionError
 from chowki.types import StepStatus
 
 #: Wire constant written into a step record whose result cannot be encoded.
@@ -213,6 +213,97 @@ def test_idempotency_key_is_claimed_once_per_step(ctx: RunContext) -> None:
         ctx.engine.storage.claim_idempotency_key(key.idempotency_key, args_hash=key.args_hash)
         is False
     )
+
+
+def test_a_cleanly_failed_idempotent_step_retries_on_reinvocation(
+    engine: ChowkiEngine,
+) -> None:
+    """A FAILED record with matching args proves the earlier attempt is accounted
+    for, so re-running the workflow must execute the step again instead of
+    refusing on the claim the dead attempt left behind."""
+    calls: list[int] = []
+
+    @step(retries=0)
+    def send() -> str:
+        calls.append(1)
+        if len(calls) == 1:
+            raise ToolExecutionError("downstream 500")
+        return "sent"
+
+    ctx1 = RunContext(run_id="rr", workflow="demo", engine=engine)
+    with run_scope(ctx1), pytest.raises(ToolExecutionError):
+        send()
+
+    ctx2 = RunContext(run_id="rr", workflow="demo", engine=engine, resuming=True)
+    with run_scope(ctx2):
+        assert send() == "sent"
+    assert len(calls) == 2
+
+    rec = engine.storage.get_step("rr", "send#0")
+    assert rec is not None and rec.status is StepStatus.COMPLETED
+
+
+def test_a_mid_step_death_still_refuses_until_released(engine: ChowkiEngine) -> None:
+    """A RUNNING record means the side effect's fate is unknown: refuse to repeat
+    it, but let an operator who has checked the downstream system release the
+    claim so the run can move again."""
+    calls: list[int] = []
+
+    @step
+    def charge() -> str:
+        calls.append(1)
+        if len(calls) == 1:
+            raise _Interrupted()
+        return "charged"
+
+    ctx1 = RunContext(run_id="rc", workflow="demo", engine=engine)
+    with run_scope(ctx1), pytest.raises(_Interrupted):
+        charge()
+
+    ctx2 = RunContext(run_id="rc", workflow="demo", engine=engine, resuming=True)
+    with run_scope(ctx2), pytest.raises(ChowkiStorageError, match="release_step"):
+        charge()
+
+    assert release_step("rc", "charge#0", engine=engine) is True
+
+    ctx3 = RunContext(run_id="rc", workflow="demo", engine=engine, resuming=True)
+    with run_scope(ctx3):
+        assert charge() == "charged"
+    assert len(calls) == 2
+
+
+def test_complete_step_records_an_operator_result_that_memoises(
+    engine: ChowkiEngine,
+) -> None:
+    """The other escape hatch: the operator confirmed the side effect DID happen,
+    so the step is recorded COMPLETED with the operator-supplied result and the
+    re-execution memoises it instead of running the body."""
+
+    @step
+    def charge() -> str:
+        raise _Interrupted()
+
+    ctx1 = RunContext(run_id="rf", workflow="demo", engine=engine)
+    with run_scope(ctx1), pytest.raises(_Interrupted):
+        charge()
+
+    complete_step("rf", "charge#0", result="charged-by-hand", engine=engine)
+
+    ctx2 = RunContext(run_id="rf", workflow="demo", engine=engine, resuming=True)
+    with run_scope(ctx2):
+        assert charge() == "charged-by-hand"
+
+    rec = engine.storage.get_step("rf", "charge#0")
+    assert rec is not None and rec.status is StepStatus.COMPLETED
+
+
+def test_release_and_complete_step_reject_unknown_steps(engine: ChowkiEngine) -> None:
+    from chowki.errors import ChowkiStateError
+
+    with pytest.raises(ChowkiStateError):
+        release_step("nope", "charge#0", engine=engine)
+    with pytest.raises(ChowkiStateError):
+        complete_step("nope", "charge#0", result=None, engine=engine)
 
 
 def test_state_is_snapshotted_per_step(ctx: RunContext) -> None:

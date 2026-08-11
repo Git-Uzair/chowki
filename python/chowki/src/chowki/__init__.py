@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from chowki.config import ChowkiConfig, configure
 from chowki.core.context import current_run
-from chowki.core.decorators import step
+from chowki.core.decorators import complete_step, release_step, step
 from chowki.core.resume import resume
 from chowki.core.runner import pause, recover_runs, resumable_runs, workflow
 from chowki.errors import (
@@ -45,10 +45,12 @@ __all__ = [
     "Usage",
     "WorkflowPaused",
     "__version__",
+    "complete_step",
     "configure",
     "current_run",
     "pause",
     "recover_runs",
+    "release_step",
     "report_usage",
     "resumable_runs",
     "resume",
