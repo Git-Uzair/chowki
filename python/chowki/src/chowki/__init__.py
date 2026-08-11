@@ -5,6 +5,7 @@ from __future__ import annotations
 from chowki.config import ChowkiConfig, configure
 from chowki.core.context import current_run
 from chowki.core.decorators import complete_step, release_step, step
+from chowki.core.inspection import RunInspection, inspect_run
 from chowki.core.resume import aresume, rerun, resume
 from chowki.core.runner import pause, recover_runs, reissue_token, resumable_runs, workflow
 from chowki.errors import (
@@ -58,6 +59,7 @@ __all__ = [
     "HumanRejectedError",
     "InfiniteLoopDetected",
     "PauseRequest",
+    "RunInspection",
     "RunStatus",
     "StepStatus",
     "Usage",
@@ -67,6 +69,7 @@ __all__ = [
     "complete_step",
     "configure",
     "current_run",
+    "inspect_run",
     "pause",
     "record_text",
     "record_transition",
