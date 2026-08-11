@@ -62,7 +62,10 @@ class ChowkiEngine:
         self.redactor: Redactor = Redactor(
             hmac_key=self._config.redaction_hmac_key or os.urandom(32)
         )
-        self.blobs: BlobStore = BlobStore()
+        # Backed by the storage adapter so blobs extracted from state are as
+        # durable as the snapshots that reference them (a ref a fresh process
+        # cannot inline would make warm resume fail with a missing blob).
+        self.blobs: BlobStore = BlobStore(storage=self.storage)
         self.gateway: ChannelGateway | None = self._config.gateway
         self._pipelines: dict[str, SnapshotPipeline] = {}
         self.pending_resume_state: dict[str, tuple[str, dict[str, Any]]] = {}

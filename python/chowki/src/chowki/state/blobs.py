@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Final, cast
+from typing import Any, Final, Protocol, cast
 
 from chowki.errors import SnapshotIntegrityError
 
 BLOB_REF_PREFIX: Final[str] = "ref:sha256:"
 ESCAPE_PREFIX: Final[str] = "ref-lit:"
+
+
+class BlobBacking(Protocol):
+    """The two adapter methods a durable blob backing must provide.
+
+    Structurally satisfied by every :class:`~chowki.storage.base.StorageAdapter`;
+    declared here so this module does not import the storage package it feeds.
+    """
+
+    def put_blob(self, data: bytes) -> str: ...
+
+    def get_blob(self, ref: str) -> bytes | None: ...
 
 
 def make_blob_ref(data: bytes) -> str:
@@ -21,16 +33,27 @@ def make_blob_ref(data: bytes) -> str:
 
 
 class BlobStore:
-    """In-memory key-value blob store mapping content references to bytes."""
+    """Content-addressed blob store with an optional durable backing adapter.
 
-    def __init__(self) -> None:
+    Without backing it is a plain in-memory map. With backing — the engine wires
+    its storage adapter in — ``put`` writes through to durable storage *before*
+    the local cache, so a blob is always at least as durable as any snapshot that
+    references it, and ``get`` falls back to the backing store, which is what
+    lets a fresh process inline refs a dead process extracted.
+    """
+
+    def __init__(self, storage: BlobBacking | None = None) -> None:
         self._store: dict[str, bytes] = {}
+        self._backing = storage
         self.has_escapes: bool = False
 
     def put(self, data: bytes) -> str:
         """Store bytes and return content-addressed reference string."""
         ref = make_blob_ref(data)
-        self._store[ref] = data
+        if ref not in self._store:
+            if self._backing is not None:
+                self._backing.put_blob(data)
+            self._store[ref] = data
         return ref
 
     def mark_escape(self) -> None:
@@ -38,15 +61,27 @@ class BlobStore:
 
     def get(self, ref: str) -> bytes:
         """Retrieve stored bytes for reference, raising SnapshotIntegrityError if missing."""
-        if ref not in self._store:
-            raise SnapshotIntegrityError(f"missing blob {ref}")
-        return self._store[ref]
+        cached = self._store.get(ref)
+        if cached is not None:
+            return cached
+        if self._backing is not None:
+            data = self._backing.get_blob(ref)
+            if data is not None:
+                self._store[ref] = data
+                return data
+        raise SnapshotIntegrityError(f"missing blob {ref}")
 
     def __len__(self) -> int:
         return len(self._store)
 
     def __contains__(self, ref: object) -> bool:
-        return ref in self._store
+        if ref in self._store:
+            return True
+        return (
+            isinstance(ref, str)
+            and self._backing is not None
+            and self._backing.get_blob(ref) is not None
+        )
 
     def clear(self) -> None:
         self._store.clear()

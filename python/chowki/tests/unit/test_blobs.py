@@ -26,6 +26,29 @@ def test_identical_blobs_deduplicate() -> None:
     assert len(store) == 1
 
 
+def test_backed_store_writes_through_and_survives_a_new_process() -> None:
+    """A BlobStore given durable backing persists every blob it extracts, and a
+    fresh store over the same backing (a restarted process) can read them back."""
+    from chowki.storage.memory import MemoryStorage
+
+    backing = MemoryStorage()
+    store = BlobStore(storage=backing)
+    ref = store.put(b"D" * 5000)
+    assert backing.get_blob(ref) == b"D" * 5000
+
+    fresh = BlobStore(storage=backing)
+    assert fresh.get(ref) == b"D" * 5000
+    assert ref in fresh
+
+
+def test_backed_store_still_raises_for_a_truly_missing_blob() -> None:
+    from chowki.storage.memory import MemoryStorage
+
+    store = BlobStore(storage=MemoryStorage())
+    with pytest.raises(SnapshotIntegrityError):
+        store.get(BLOB_REF_PREFIX + "0" * 64)
+
+
 def test_missing_blob_raises_rather_than_silently_returning_the_ref() -> None:
     store = BlobStore()
     stripped = extract_blobs({"a": "X" * 9000}, store, threshold_bytes=4096)
