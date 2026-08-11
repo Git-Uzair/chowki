@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import chowki
+from chowki.config import ChowkiEngine
 from chowki.guardrails import GuardrailConfig
 from chowki.hitl.console import ConsoleGateway
 
@@ -152,6 +153,26 @@ def agent_review_workflow(
     return send_email_tool(final_draft)
 
 
+def _stall_run(engine: ChowkiEngine, run_id: str) -> None:
+    """Put the run back into RUNNING: the state a hard-killed process leaves behind.
+
+    A caught exception is a tidy failure, so chowki marks the run FAILED. A real
+    kill -9 never gets that far, and `chowki recover` only revives RUNNING runs.
+    """
+    run = engine.storage.get_run(run_id)
+    if run is not None:
+        run.status = chowki.RunStatus.RUNNING
+        engine.storage.put_run(run)
+
+
+def _print_operator_recovery_hint(db: str, run_id: str) -> None:
+    """Print the CLI arc an operator runs after a crash (README step 2/3)."""
+    print(f"Total LLM calls executed before crash: {get_llm_call_count()}")
+    print(f"Run {run_id} left stalled in RUNNING status. Recover it from your shell:")
+    print(f"  chowki --db {db} -m examples.python.agent_review recover")
+    print(f"  chowki --db {db} -m examples.python.agent_review rerun {run_id}\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chowki Showcase Agent Example")
     parser.add_argument(
@@ -165,6 +186,11 @@ def main() -> None:
         type=str,
         default="./chowki.db",
         help="Path to SQLite database file",
+    )
+    parser.add_argument(
+        "--no-auto-recover",
+        action="store_true",
+        help="On a simulated crash, exit(1) and leave the run stalled for `chowki recover`",
     )
     args = parser.parse_args()
 
@@ -204,16 +230,19 @@ def main() -> None:
         print(f"[Pause Gate] Resume Token: {token}\n")
     except RuntimeError as err:
         print(f"[CRASH SIMULATED] Process crashed mid-run: {err}\n")
-        run = engine.storage.get_run(run_id)
-        if run is not None:
-            run.status = chowki.RunStatus.RUNNING
-            engine.storage.put_run(run)
+        _stall_run(engine, run_id)
+        if args.no_auto_recover:
+            _print_operator_recovery_hint(args.db, run_id)
+            sys.exit(1)
 
         print("--- Recovering Stalled Runs (`chowki recover`) ---")
         recovered = chowki.recover_runs(engine=engine)
         print(f"Recovered {len(recovered)} run(s) back to PENDING status.\n")
 
         print("--- Rerunning Recovered Workflow (`chowki rerun`) ---")
+        # The env var trigger has to go before the rerun, or the rerun crashes at the
+        # very step it is meant to skip past.
+        os.environ.pop("CHOWKI_CRASH_AFTER", None)
         try:
             chowki.rerun(run_id=run_id, engine=engine)
         except chowki.WorkflowPaused as exc:
@@ -253,10 +282,10 @@ def main() -> None:
         return
     except RuntimeError as err:
         print(f"[CRASH SIMULATED] Process crashed mid-run: {err}\n")
-        run = engine.storage.get_run(run_id)
-        if run is not None:
-            run.status = chowki.RunStatus.RUNNING
-            engine.storage.put_run(run)
+        _stall_run(engine, run_id)
+        if args.no_auto_recover:
+            _print_operator_recovery_hint(args.db, run_id)
+            sys.exit(1)
 
         # Step 3: Recover crashed / stalled run
         print("--- [3/4] Recovering Stalled Runs (`chowki recover`) ---")
@@ -265,8 +294,7 @@ def main() -> None:
 
         # Step 4: Rerun recovered run (`chowki rerun`)
         print("--- [4/4] Rerunning Recovered Workflow (`chowki rerun`) ---")
-        if "CHOWKI_CRASH_AFTER" in os.environ:
-            del os.environ["CHOWKI_CRASH_AFTER"]
+        os.environ.pop("CHOWKI_CRASH_AFTER", None)
 
         final_result = chowki.rerun(run_id=run_id, engine=engine)
         print("\nWorkflow Completed Successfully!")

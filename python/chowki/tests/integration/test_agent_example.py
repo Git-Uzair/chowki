@@ -22,6 +22,33 @@ from chowki.types import RunStatus  # noqa: E402
 pytestmark = pytest.mark.integration
 
 
+def _run(
+    cmd: list[str],
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a command from the repo root, the working directory the README assumes."""
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(  # noqa: S603
+        cmd, capture_output=True, text=True, env=env, cwd=REPO_ROOT, check=False
+    )
+
+
+def run_example(
+    args: list[str],
+    *,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run examples/python/agent_review.py as its own process."""
+    return _run([sys.executable, "examples/python/agent_review.py", *args], extra_env)
+
+
+def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run the `chowki` console script as its own process, as an operator would."""
+    return _run([sys.executable, "-m", "chowki", *args])
+
+
 def test_agent_showcase_flow(tmp_path: Path) -> None:
     from examples.python.agent_review import (
         agent_review_workflow,
@@ -121,17 +148,82 @@ def test_agent_showcase_flow(tmp_path: Path) -> None:
 def test_agent_showcase_cli_execution(tmp_path: Path) -> None:
     """Test full CLI execution of examples/python/agent_review.py with --crash-after 1."""
     db_path = tmp_path / "showcase_cli.db"
-    cmd = [
-        sys.executable,
-        "examples/python/agent_review.py",
-        "--crash-after",
-        "1",
-        "--db",
-        str(db_path),
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
+    res = run_example(["--crash-after", "1", "--db", str(db_path)])
     assert res.returncode == 0
     assert "Simulated crash after step 1" in res.stderr
     assert "Recovered 1 run(s) back to PENDING status." in res.stdout
     assert "Total LLM calls executed: 2" in res.stdout
     assert "Workflow finished: Email sent to security-team@example.com" in res.stdout
+
+
+def test_agent_showcase_crash_env_var(tmp_path: Path) -> None:
+    """CHOWKI_CRASH_AFTER=1 crashes the run, then auto-recovery finishes it with 2 LLM calls.
+
+    The env var must not survive into `chowki.rerun`, or the rerun crashes again at
+    the same step and the run never reaches the approval gate.
+    """
+    db_path = tmp_path / "showcase_env.db"
+    res = run_example(["--db", str(db_path)], extra_env={"CHOWKI_CRASH_AFTER": "1"})
+    assert res.returncode == 0
+    assert "Simulated crash after step 1" in res.stderr
+    assert "Recovered 1 run(s) back to PENDING status." in res.stdout
+    assert "Total LLM calls executed: 2" in res.stdout
+    assert "Workflow finished: Email sent to security-team@example.com" in res.stdout
+
+
+def _llm_step_stamps(db_path: Path, run_id: str) -> dict[str, tuple[int, str | None]]:
+    """Attempt count and end time of every executed LLM step, read from storage.
+
+    Process-independent evidence of memoisation: re-executing a step rewrites its
+    record, so unchanged stamps mean the LLM call did not happen a second time.
+    """
+    engine = configure(db_path=db_path)
+    try:
+        return {
+            s.step_id: (s.attempts, s.ended_at_utc)
+            for s in engine.storage.list_steps(run_id)
+            if s.name in ("agent_plan", "agent_draft_email")
+        }
+    finally:
+        reset_engine()
+
+
+def _run_status(db_path: Path, run_id: str) -> RunStatus:
+    engine = configure(db_path=db_path)
+    try:
+        run = engine.storage.get_run(run_id)
+        assert run is not None
+        return run.status
+    finally:
+        reset_engine()
+
+
+def test_agent_showcase_manual_cli_recovery(tmp_path: Path) -> None:
+    """`--no-auto-recover` leaves a stalled run for the documented operator CLI arc."""
+    db_path = tmp_path / "showcase_manual.db"
+    run_id = "showcase-agent-run-1"
+
+    crashed = run_example(["--crash-after", "3", "--no-auto-recover", "--db", str(db_path)])
+    assert crashed.returncode == 1
+    assert "[CRASH SIMULATED]" in crashed.stdout
+    assert "Total LLM calls executed before crash: 2" in crashed.stdout
+    # The script must NOT recover in-process: that is the operator's job below.
+    assert "Recovered" not in crashed.stdout
+    assert _run_status(db_path, run_id) == RunStatus.RUNNING
+
+    llm_steps_before = _llm_step_stamps(db_path, run_id)
+    assert len(llm_steps_before) == 2  # two LLM calls total, both already accounted for
+
+    cli_args = ["--db", str(db_path), "-m", "examples.python.agent_review"]
+
+    # `chowki recover` finds the stalled RUNNING run and flips it back to PENDING.
+    recovered = run_cli([*cli_args, "recover"])
+    assert recovered.returncode == 0, recovered.stderr
+    assert f"Recovered 1 run(s): {run_id}" in recovered.stdout
+
+    # `chowki rerun` finishes it in a fresh process without repeating a single LLM call.
+    reran = run_cli([*cli_args, "rerun", run_id])
+    assert reran.returncode == 0, reran.stderr
+    assert "Email sent to security-team@example.com" in reran.stdout
+    assert _run_status(db_path, run_id) == RunStatus.COMPLETED
+    assert _llm_step_stamps(db_path, run_id) == llm_steps_before
