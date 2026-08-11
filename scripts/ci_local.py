@@ -23,6 +23,7 @@ STEPS: list[tuple[str, list[str]]] = [
         "benchmarks",
         ["uv", "run", "pytest", "python/chowki/tests/benchmarks", "--benchmark-only", "-q"],
     ),
+    ("wheel_smoke_test", ["uv", "run", "python", "scripts/wheel_smoke_test.py"]),
 ]
 
 

@@ -45,7 +45,7 @@ _llm_call_count: int = 0
 
 
 def get_llm_call_count() -> int:
-    """Return total number of LLM invocations executed across processes."""
+    """Return total number of LLM invocations executed in the current process."""
     return _llm_call_count
 
 
