@@ -112,7 +112,8 @@ def extract_blobs(value: object, store: BlobStore, *, threshold_bytes: int = 409
 
     Containers are always rebuilt, so the result shares no mutable object with `value`.
 
-    # TODO(phase-2): extract large sub-objects, not only strings
+    # TODO(phase-3): extract large sub-objects, not only strings (wire-format
+    # addition; deferred past the v0.1 release — docs/plans/00-roadmap.md)
     """
     if isinstance(value, str):
         return extract_string(value, store, threshold_bytes=threshold_bytes)
