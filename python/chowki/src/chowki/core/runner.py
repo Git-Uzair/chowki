@@ -11,7 +11,16 @@ import structlog
 
 from chowki.config import ChowkiEngine, get_engine
 from chowki.core.context import RunContext, current_run, run_scope
-from chowki.errors import ChowkiConfigError, ChowkiStateError, HumanRejectedError, WorkflowPaused
+from chowki.errors import (
+    BudgetExceeded,
+    ChowkiConfigError,
+    ChowkiStateError,
+    HumanRejectedError,
+    InfiniteLoopDetected,
+    WorkflowPaused,
+    classify,
+)
+from chowki.guardrails.breaker import AnomalyBreaker, BreakerAction
 from chowki.hitl.gateway import PauseNotice
 from chowki.state.delta import Patch, apply_patch
 from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus, Usage
@@ -215,9 +224,16 @@ def workflow(
                 with run_scope(ctx):
                     try:
                         return await fn(*args, **kwargs)
-                    except BaseException as exc:
+                    except (WorkflowPaused, HumanRejectedError) as exc:
                         exc_occurred = exc
                         raise
+                    except BaseException as exc:
+                        suspended = _maybe_auto_pause(ctx, exc)
+                        if suspended is None:
+                            exc_occurred = exc
+                            raise
+                        exc_occurred = suspended
+                        raise suspended from exc
                     finally:
                         _close_run(ctx, record, exc_occurred)
 
@@ -238,9 +254,16 @@ def workflow(
                 with run_scope(ctx):
                     try:
                         return fn(*args, **kwargs)
-                    except BaseException as exc:
+                    except (WorkflowPaused, HumanRejectedError) as exc:
                         exc_occurred = exc
                         raise
+                    except BaseException as exc:
+                        suspended = _maybe_auto_pause(ctx, exc)
+                        if suspended is None:
+                            exc_occurred = exc
+                            raise
+                        exc_occurred = suspended
+                        raise suspended from exc
                     finally:
                         _close_run(ctx, record, exc_occurred)
 
@@ -286,6 +309,35 @@ def pause(
             ctx.state.update(cast(JSONObject, patched))
         return None
 
+    token = _suspend(
+        ctx,
+        step_id=step_id,
+        reason=reason,
+        payload=payload,
+        permitted_actions=permitted_actions,
+        reviewers=reviewers,
+        channel=channel,
+        origin="gate",
+    )
+    raise WorkflowPaused(ctx.run_id, step_id, token=token)
+
+
+def _suspend(
+    ctx: RunContext,
+    *,
+    step_id: str,
+    reason: str,
+    payload: JSONObject | None,
+    permitted_actions: Sequence[str],
+    reviewers: Sequence[str],
+    channel: str,
+    origin: str,
+) -> str:
+    """Durably suspend the run: freeze state, mint a token, persist, notify.
+
+    Shared by the ``pause()`` gate and the guardrail auto-pause; the caller owns
+    gate bookkeeping and raising WorkflowPaused with the returned token.
+    """
     redacted_payload = (
         cast(JSONObject, ctx.engine.redactor.redact(payload)) if payload is not None else {}
     )
@@ -305,6 +357,7 @@ def pause(
         reviewers=tuple(reviewers),
         channel=channel,
         created_at_utc=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        origin=origin,
     )
     token = ctx.engine.tokens.issue(
         run_id=ctx.run_id,
@@ -343,7 +396,56 @@ def pause(
             logger = structlog.get_logger()
             logger.exception("chowki_gateway_notify_failed", run_id=ctx.run_id, channel=channel)
 
-    raise WorkflowPaused(ctx.run_id, step_id, token=token)
+    return token
+
+
+def _maybe_auto_pause(ctx: RunContext, exc: BaseException) -> WorkflowPaused | None:
+    """Convert a breaker PAUSE decision into a real suspension (ADR-005).
+
+    Fires for exactly two shapes: an exception a step's breaker already stamped
+    with ``chowki_action = PAUSE`` (retry-exhausted tool/rate-limit errors,
+    reask-exhausted validation), and a bare guardrail breach raised outside any
+    step (loop detection inside ``_begin``, a hard budget breach in the body) --
+    where the breaker is consulted here. Everything else stays a FAILED run.
+    Returns the WorkflowPaused to raise, or None to let the failure stand. A
+    failure inside suspension itself falls back to the plain failure path: a
+    guardrail must never turn a recordable error into an unrecorded crash.
+    """
+    if not isinstance(exc, Exception) or ctx.pause is not None:
+        return None
+
+    action = getattr(exc, "chowki_action", None)
+    if action is None and isinstance(exc, (BudgetExceeded, InfiniteLoopDetected)):
+        action = AnomalyBreaker(ctx.engine.config.guardrails).decide(exc, attempt=0)
+    if action is not BreakerAction.PAUSE:
+        return None
+
+    error_class = classify(exc).value
+    step_id = getattr(exc, "chowki_step_id", None) or f"breach#{error_class}"
+    try:
+        token = _suspend(
+            ctx,
+            step_id=step_id,
+            reason=f"auto-pause: {error_class}: {exc}",
+            payload={"error_class": error_class, "message": str(exc), "step_id": step_id},
+            permitted_actions=("APPROVE", "REJECT", "EDIT"),
+            reviewers=(),
+            channel="console",
+            origin="auto",
+        )
+    except Exception:
+        logger = structlog.get_logger()
+        logger.exception("chowki_auto_pause_failed", run_id=ctx.run_id, step_id=step_id)
+        return None
+
+    logger = structlog.get_logger()
+    logger.warning(
+        "chowki_run_auto_paused",
+        run_id=ctx.run_id,
+        step_id=step_id,
+        error_class=error_class,
+    )
+    return WorkflowPaused(ctx.run_id, step_id, token=token)
 
 
 def reissue_token(

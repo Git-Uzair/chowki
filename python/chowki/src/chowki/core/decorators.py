@@ -267,6 +267,9 @@ def _handle_step_exception(
     action = breaker.decide(exc, attempt=attempt)
     if action is not BreakerAction.RETRY:
         exc.chowki_action = action  # type: ignore[attr-defined]
+        # The workflow wrapper's auto-pause binds the suspension to the step that
+        # failed, so a resume retries exactly this step.
+        exc.chowki_step_id = record.step_id  # type: ignore[attr-defined]
         _fail(ctx, record, exc)
     return action
 
@@ -295,8 +298,11 @@ def step(
 ) -> Any:
     """Interceptor for step memoisation, idempotency, snapshotting, and breaker retries.
 
-    REASK and SUMMARIZE decisions are attached to the raised exception as
-    `exc.chowki_action = action` and re-raised for higher-level wrappers or applications.
+    Non-RETRY breaker decisions are attached to the raised exception as
+    `exc.chowki_action = action` (plus `exc.chowki_step_id`) and re-raised. The
+    enclosing @chowki.workflow converts a PAUSE decision into a durable auto-pause
+    (run PAUSED, resume token minted, gateway notified); REASK and SUMMARIZE stay
+    signals for higher-level wrappers or applications.
     """
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
