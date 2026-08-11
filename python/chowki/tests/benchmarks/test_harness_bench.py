@@ -11,7 +11,11 @@ from budgets import BUDGETS
 
 @pytest.mark.benchmark
 def test_budget_registry_is_complete(benchmark: Any) -> None:
-    """Every hot-path budget named in docs/plans/01-foundation.md must be registered."""
+    """Every hot-path budget in the normative registry must stay registered.
+
+    The budget table originated in docs/plans/01-foundation.md (now in git history);
+    budgets.py is the living contract.
+    """
     required = {
         "redaction_1mb_ms",
         "encode_1mb_ms",
