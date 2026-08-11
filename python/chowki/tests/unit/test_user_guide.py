@@ -152,6 +152,47 @@ def test_documented_chowki_api_names_exist() -> None:
                     )
 
 
+def _is_workflow_decorator(dec: ast.expr) -> bool:
+    """``@chowki.workflow`` or ``@chowki.workflow(...)``."""
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    return isinstance(target, ast.Attribute) and target.attr == "workflow"
+
+
+def _required_params(args: ast.arguments) -> list[str]:
+    positional = args.posonlyargs + args.args
+    without_default = positional[: len(positional) - len(args.defaults)]
+    kwonly = [
+        arg.arg
+        for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
+        if default is None
+    ]
+    return [arg.arg for arg in without_default] + kwonly
+
+
+def test_documented_workflows_are_invocable_the_way_resume_invokes_them() -> None:
+    """Every documented workflow can be called the way a warm resume calls it.
+
+    ``resume()``/``rerun()`` re-invoke the workflow as ``workflow_fn(run_id=run_id)`` and
+    pass nothing else, so a documented workflow with a parameter that has no default
+    cannot actually be resumed -- the re-invocation dies with a ``TypeError``.
+    """
+    blocks = _python_blocks()
+    assert len(blocks) > 0, "No python blocks found in user guide"
+
+    for md_file, code in blocks:
+        for node in ast.walk(ast.parse(code)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if not any(_is_workflow_decorator(dec) for dec in node.decorator_list):
+                continue
+            required = _required_params(node.args)
+            assert not required, (
+                f"{md_file.name} documents workflow {node.name} with parameter(s) "
+                f"{required} that have no default -- resume() re-invokes the workflow as "
+                f"{node.name}(run_id=run_id), which would raise TypeError."
+            )
+
+
 #: Config defaults the guide is allowed to quote: literal ones, which a doc cell can be
 #: compared against. ``db_path`` (a ``default_factory``) is covered by its own test above.
 _LITERAL_DEFAULTS: dict[str, object] = {

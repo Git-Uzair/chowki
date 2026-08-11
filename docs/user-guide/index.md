@@ -48,7 +48,7 @@ def process_data(data: dict[str, str]) -> str:
 
 
 @chowki.workflow
-def my_workflow(query: str) -> str:
+def my_workflow(query: str = "chowki guide") -> str:
     raw = fetch_data(query)
     processed = process_data(raw)
     return processed
