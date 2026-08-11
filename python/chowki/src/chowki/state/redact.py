@@ -430,7 +430,7 @@ class Redactor:
             )
 
         if isinstance(value, (bytes, bytearray, memoryview)):
-            return self._redact_binary(value)
+            return self._redact_binary(cast("bytes | bytearray | memoryview[int]", value))
 
         if isinstance(value, (set, frozenset)):
             members = cast("set[Any] | frozenset[Any]", value)
@@ -442,7 +442,7 @@ class Redactor:
 
         return value
 
-    def _redact_binary(self, value: bytes | bytearray | memoryview) -> bytes | bytearray:
+    def _redact_binary(self, value: bytes | bytearray | memoryview[int]) -> bytes | bytearray:
         """Redact a bytes-like leaf if it is UTF-8 text; pass true binary through.
 
         msgpack persists bytes natively, so a credential inside a UTF-8 bytes value
