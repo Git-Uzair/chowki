@@ -353,13 +353,12 @@ def resumable_runs(engine: ChowkiEngine) -> list[RunRecord]:
 
 
 def recover_runs(engine: ChowkiEngine) -> list[RunRecord]:
-    """Detect incomplete runs, reset RUNNING or FAILED runs to PENDING on start."""
+    """Detect incomplete runs, reset RUNNING runs to PENDING on start."""
     logger = structlog.get_logger()
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    resumable = {RunStatus.PENDING, RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.FAILED}
-    incomplete = [r for r in engine.storage.list_runs() if r.status in resumable]
+    incomplete = resumable_runs(engine)
     for run in incomplete:
-        if run.status in (RunStatus.RUNNING, RunStatus.FAILED):
+        if run.status == RunStatus.RUNNING:
             run.status = RunStatus.PENDING
             run.updated_at_utc = now
             engine.storage.put_run(run)

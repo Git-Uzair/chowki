@@ -38,3 +38,23 @@ def test_recover_runs_reports_but_does_not_execute(engine: ChowkiEngine) -> None
     assert [r.run_id for r in found] == ["a"]
     run = engine.storage.get_run("a")
     assert run is not None and run.status is RunStatus.PENDING  # re-armed, not executed
+
+
+def test_recover_runs_ignores_failed_runs(engine: ChowkiEngine) -> None:
+    _seed(engine, "r_running", RunStatus.RUNNING)
+    _seed(engine, "r_paused", RunStatus.PAUSED)
+    _seed(engine, "r_pending", RunStatus.PENDING)
+    _seed(engine, "r_failed", RunStatus.FAILED)
+    _seed(engine, "r_completed", RunStatus.COMPLETED)
+
+    found = recover_runs(engine)
+    found_ids = sorted(r.run_id for r in found)
+    assert found_ids == ["r_paused", "r_pending", "r_running"]
+
+    # FAILED run was untouched
+    failed_run = engine.storage.get_run("r_failed")
+    assert failed_run is not None and failed_run.status is RunStatus.FAILED
+
+    # RUNNING run was flipped to PENDING
+    running_run = engine.storage.get_run("r_running")
+    assert running_run is not None and running_run.status is RunStatus.PENDING
