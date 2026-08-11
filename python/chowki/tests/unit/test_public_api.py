@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import msgspec
+import pytest
 
 import chowki
+from chowki.config import ChowkiEngine
 from chowki.types import SnapshotEnvelope
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def test_public_surface_is_exactly_as_documented() -> None:
@@ -101,3 +99,92 @@ def test_report_usage_persists_in_run_record() -> None:
     assert record_int is not None
     assert record_int.usage.input_tokens == 500
     assert record_int.usage.billable_tokens == 500
+
+
+def test_report_usage_persists_across_the_paused_boundary(engine: ChowkiEngine) -> None:
+    """A suspension is a billing boundary: what was spent before it must be durable.
+
+    Two separate writes are asserted, because a paused run is persisted twice: `pause()`
+    itself, whose write is the only one a process that dies inside the suspension leaves
+    behind, and the wrapper's close, which sees whatever the body spent after catching
+    `WorkflowPaused`. Asserting only the final record would let either write disappear.
+    """
+    at_pause: list[int] = []
+
+    @chowki.workflow(engine=engine)
+    def approve_spend() -> str:
+        chowki.report_usage(chowki.Usage(input_tokens=800, output_tokens=200))
+        try:
+            chowki.pause(reason="approve spend")
+        except chowki.WorkflowPaused:
+            suspended = engine.storage.get_run("run_paused_usage")
+            assert suspended is not None
+            at_pause.append(suspended.usage.billable_tokens)
+            chowki.report_usage(chowki.Usage(output_tokens=100))
+            raise
+        return "done"
+
+    with pytest.raises(chowki.WorkflowPaused):
+        approve_spend(run_id="run_paused_usage")
+
+    assert at_pause == [1000], "pause() must persist the usage spent up to the suspension"
+
+    record = engine.storage.get_run("run_paused_usage")
+    assert record is not None
+    assert record.status is chowki.RunStatus.PAUSED
+    assert record.usage.billable_tokens == 1100, "the PAUSED close must keep the run's usage"
+
+
+def test_resumed_run_accumulates_usage_across_the_pause(engine: ChowkiEngine) -> None:
+    """Usage is cumulative per run, so a resume continues the tally instead of restarting it.
+
+    The reports live inside steps, so the replay of the body before the gate does not
+    re-bill them: the pre-pause total has to come from the stored record, and the budget
+    the resumed execution enforces has to start from it too.
+    """
+    seen_usage: list[int] = []
+    seen_budget: list[int] = []
+
+    @chowki.step
+    def draft() -> str:
+        chowki.report_usage(chowki.Usage(input_tokens=800, output_tokens=200))
+        return "draft"
+
+    @chowki.step
+    def deliver() -> str:
+        chowki.report_usage(chowki.Usage(input_tokens=300))
+        return "delivered"
+
+    @chowki.workflow(engine=engine)
+    def spend_around_a_gate() -> str:
+        ctx = chowki.current_run()
+        seen_usage.append(ctx.usage.billable_tokens)
+        seen_budget.append(ctx.budget.total.billable_tokens)
+        draft()
+        chowki.pause(reason="approve spend")
+        return deliver()
+
+    with pytest.raises(chowki.WorkflowPaused) as excinfo:
+        spend_around_a_gate(run_id="run_resume_usage")
+    token = excinfo.value.token
+    assert token is not None
+
+    paused = engine.storage.get_run("run_resume_usage")
+    assert paused is not None
+    assert paused.usage.billable_tokens == 1000
+
+    chowki.resume(
+        run_id="run_resume_usage",
+        token=token,
+        decision=chowki.Decision.APPROVE,
+        workflow_fn=spend_around_a_gate,
+        engine=engine,
+    )
+
+    assert seen_usage == [0, 1000], "the resumed context must open with the run's stored usage"
+    assert seen_budget == [0, 1000], "the resumed budget must be charged for the pre-pause spend"
+
+    record = engine.storage.get_run("run_resume_usage")
+    assert record is not None
+    assert record.status is chowki.RunStatus.COMPLETED
+    assert record.usage.billable_tokens == 1300
