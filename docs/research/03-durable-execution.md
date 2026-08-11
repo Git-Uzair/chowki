@@ -53,6 +53,16 @@ Durable execution engines ensure that multi-step workflows, agent operations, an
 2. **Flexible Agent Execution Without Sandbox Constraints:** LLM-based agent loops are inherently non-deterministic (varying token responses, dynamic tool selections, adaptive reasoning). In `chowki`, agent steps wrapped in `@chowki.step` save their output upon completion. If an agent workflow pauses for human input or recovers from a crash, `chowki` re-hydrates the latest state snapshot and resumes at the next pending step without re-evaluating completed steps or failing due to history journal mismatches.
 3. **Decoupled Code Evolution:** Because `chowki` resumes directly from saved state snapshots rather than replaying past code lines, changing prompt templates, adding loggers, or modifying downstream step logic in `@chowki.workflow` does not invalidate past completed steps.
 
+> **Amendment (2026-08-11, normative — the claim above needs its boundary stated):**
+> "Decoupled code evolution" holds only for changes that preserve **step identity**,
+> which Phase 1 pinned as `f"{name}#{per-run call ordinal}"` with an args-hash guard
+> (`07-cross-sdk-parity.md` §4). Renaming a step, removing or reordering calls, or
+> inserting a call before existing ones shifts identity between a pause and a resume:
+> completed work re-executes and side effects re-fire. Both SDKs must derive identity
+> and args-hashes identically or cross-SDK resume silently re-runs side effects.
+> Workflow-definition versioning (Temporal Build-ID-style) remains an open Phase 6
+> design item; until then this hazard is documented, not solved.
+
 ---
 
 ## 2. Side Effects, Idempotency, and Transactional Consistency
@@ -85,6 +95,20 @@ In distributed systems, true end-to-end "exactly-once" execution over unreliable
 3. **Status Locking & Pending Timeouts:** When an idempotency key is claimed, its status is set to `PENDING`. Concurrent requests arriving while the key is `PENDING` receive `409 Conflict` with a `Retry-After` header, preventing retry storms.
 * [Source: https://backendbytes.com/articles/idempotency-patterns-distributed-systems/ (Accessed: 2026-08-08)]
 * [Source: https://matheuspalma.com/blog/idempotency-keys-and-safe-retries (Accessed: 2026-08-08)]
+
+> **Amendment (2026-08-11, normative — claim lifecycle and recovery):** a claim
+> primitive without a recovery story bricks runs: Phase 1 initially held every claim
+> forever, so ANY failed idempotent step (the default) made its run permanently
+> unrecoverable. The shipped lifecycle (`07-cross-sdk-parity.md` §5): the key is
+> `HMAC-SHA256(resume_secret, run_id|step_id|args_hash)`; a refused claim next to a
+> **FAILED** record with matching args is this run's own finished attempt and the step
+> **retries**; a **RUNNING** record or claim-without-record (mid-step death,
+> side-effect fate unknown) refuses, with mandatory operator escape hatches
+> `release_step(run_id, step_id)` ("it did not happen") and
+> `complete_step(run_id, step_id, result)` ("it happened; memoise this"). Every SDK
+> must ship both. The `PENDING`/`Retry-After` HTTP protocol and downstream
+> `Idempotency-Key` header propagation described above remain unimplemented design
+> targets (Phase 6, with the outbox).
 
 ### 2.3 Transactional Outbox Pattern for External Side Effects
 

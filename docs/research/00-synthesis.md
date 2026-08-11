@@ -5,6 +5,15 @@
 **Document:** `docs/research/00-synthesis.md`  
 **Status:** Approved Phase 2 Synthesis Architecture Blueprint  
 
+> **Numbering note (added 2026-08-11):** "Phase 2" in the status line above labels the
+> *research process* (phase 1 = workstreams, phase 2 = this synthesis), and the phase
+> numbers in §6's open questions predate implementation. **Implementation phase
+> numbering is owned by `docs/plans/00-roadmap.md`** (0 scaffold, 1 Python core MVP —
+> both DONE — 2 operability+spec, 3 Node SDK, 4 gateways, 5 scale-out, 6 advanced
+> durability). The normative cross-SDK contract extracted from the shipped Phase 1
+> implementation is `07-cross-sdk-parity.md`; where it and older prose disagree, it
+> wins.
+
 ---
 
 ## 1. Executive Summary & Product Vision (The CHOWKI Proposition)
@@ -189,10 +198,24 @@ $$\text{Total Per-Step Overhead Budget Target} \le \mathbf{2.0 \text{ ms}}$$
 
 ## 6. Open Questions & User Decision Points
 
-1. **Default Storage Adapter Strategy:** Should `chowki` default to embedded SQLite (`chowki.db` in local working directory) or file-system MessagePack files when no storage backend parameter is provided `[01-landscape.md, 03-durable-execution.md]`?
-2. **Node/TypeScript Parity Timeline:** Phase 1 establishes Python SDK standards and monorepo structure. Should Phase 3 immediately start `@chowki/core` TypeScript development or focus on Python ecosystem integrations (FastAPI, LangChain, PydanticAI) `[06-python-monorepo-standards.md]`?
-3. **Reference HITL Gateway Channel Priority:** Should the Phase 4 gateway implementation prioritize Slack Block Kit or Microsoft Teams Adaptive Cards 1.5 as the primary out-of-the-box integration `[05-hitl-gateway.md]`?
-4. **Cloud KMS Adapter Bundling:** Should key management rotation adapters (AWS KMS, GCP KMS, HashiCorp Vault) be included in `chowki` core or distributed as optional extras (`chowki[aws]`) `[02-serialization.md, 06-python-monorepo-standards.md]`?
+> **Resolution status (2026-08-11):** all four were decided during Phase 1 and are
+> binding unless the roadmap revisits them.
+
+1. **Default Storage Adapter Strategy** — **DECIDED:** embedded SQLite at
+   `./.chowki/chowki.db` (WAL, 5 s busy timeout, `synchronous=NORMAL`), with an
+   in-memory adapter for tests. File-system MessagePack was not built.
+2. **Node/TypeScript Parity Timeline** — **DECIDED:** the Node SDK is roadmap
+   Phase 3, generated from `spec/v1/` and `07-cross-sdk-parity.md` after Phase 2
+   lands the parity spec; Python ecosystem integrations moved to Phase 6.
+3. **Reference HITL Gateway Channel Priority** — **DECIDED for Phase 1:** neither —
+   Phase 1 shipped the `ChannelGateway` abstraction plus `ConsoleGateway` /
+   `InMemoryGateway`, designed against both payload contracts. Channel adapters are
+   roadmap Phase 4 (Slack Block Kit first: `05-hitl-gateway.md` specifies its
+   signing/`response_url` mechanics in the most depth).
+4. **Cloud KMS Adapter Bundling** — **DECIDED:** out of core. Phase 1 ships a local
+   `KeyRing` (explicit key or `CHOWKI_MASTER_KEY`, encryption opt-in and off by
+   default); KMS adapters arrive as optional extras (`chowki[aws]`, …) in roadmap
+   Phase 5.
 
 ---
 

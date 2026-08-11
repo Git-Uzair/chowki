@@ -187,6 +187,19 @@ Standard Python dictionary key ordering and whitespace variations can produce di
 2. Lexicographical sorting of JSON dictionary keys (RFC 8785 standard).
 3. SHA-256 digest computation (`sha256:<hex>`).
 
+> **Amendment (2026-08-11, normative — cross-language traps this section missed):**
+> (a) RFC 8785 sorts keys by **UTF-16 code units** while a naive Python `sorted()`
+> sorts by code points — these diverge for astral-plane keys; the shipped SDK detects
+> astral keys and switches to UTF-16-BE ordering, and the Node SDK must match
+> (`07-cross-sdk-parity.md` §1). (b) **Number formatting is unspecified here and is
+> the #1 parity trap:** Python `repr(float)` differs from ECMAScript
+> `Number::toString` for extreme magnitudes; full ES formatting on both SDKs is a
+> Phase 3 work item (`TODO(phase-3)` in `chowki/state/canonical.py`). (c) Duplicate
+> keys after NFC normalization are an error, not last-wins. (d) The canonical
+> `content_hash` is the only cross-SDK identity hash; the snapshot envelope's
+> `state_hash` is a writer-local integrity hash over its own MessagePack bytes and
+> must never be compared across SDKs (`07-cross-sdk-parity.md` §2).
+
 #### Deduplication Store Architecture
 Large state attributes exceeding 4 KB are stripped from the main snapshot payload, replaced with a content-addressed reference string (`ref:sha256:<hash>`), and stored in a shared global blob store (`chowki_blob_store`):
 
@@ -208,6 +221,17 @@ Large state attributes exceeding 4 KB are stripped from the main snapshot payloa
 * [Source: https://pypi.org/project/knurl/ (Accessed: 2026-08-08)]
 * [Source: https://www.rfc-editor.org/rfc/rfc8785.html (Accessed: 2026-08-08)]
 
+> **Amendment (2026-08-11, normative — learned the hard way):** the blob store is not
+> an in-process cache; it is part of the durability contract. **A blob must be durable
+> in the storage adapter before any snapshot referencing it is dispatched**, because a
+> persisted `ref:sha256:…` whose bytes died with the process makes every later warm
+> resume fail with an integrity error. Phase 1 initially wired an in-memory-only blob
+> store next to a durable-but-unused `blobs` table, and cross-process resume broke for
+> any state holding a string over the 4 KB threshold. The write-through rule, escape
+> prefix (`ref-lit:`), and extraction thresholds are pinned in
+> `07-cross-sdk-parity.md` §8 — any future plan generation must carry an explicit
+> task wiring blob durability end-to-end, not just a blob-store data structure.
+
 ---
 
 ## 3. Security & Safety Infrastructure
@@ -215,6 +239,14 @@ Large state attributes exceeding 4 KB are stripped from the main snapshot payloa
 ### 3.1 Encryption at Rest
 
 To guarantee confidentiality and tamper resistance for persisted agent state snapshots across local storage, cloud buckets, and database backends, `chowki` mandates Authenticated Encryption with Associated Data (AEAD).
+
+> **Amendment (2026-08-11, normative — reconciles this section with the shipped SDK):**
+> "Mandates" describes the AEAD design when encryption is enabled, not a default.
+> Phase 1 resolved the posture: **encryption at rest is opt-in and OFF by default**
+> (`ChowkiConfig.encrypt_at_rest`); a library that silently requires key management is
+> unusable out of the box. **Redaction is the non-negotiable half of ADR-003 and is
+> always on.** Every SDK must implement the same default. Full parity details:
+> `07-cross-sdk-parity.md` §3.
 
 ```
 +--------------------------------------------------------------------------------------------------+
@@ -313,6 +345,18 @@ $$H(X) = -\sum_{i=1}^{n} P(x_i) \log_2 P(x_i)$$
 
 #### Redaction & Masking Semantics
 When a secret is detected, `chowki` replaces the sensitive value with a deterministic HMAC-blinded placeholder: `[REDACTED:<type>:<short_hash>]`. This ensures that state state diffs remain debuggable without exposing raw credentials.
+
+> **Amendment (2026-08-11, normative):** the placeholder derivation this paragraph
+> left unspecified is now pinned in `07-cross-sdk-parity.md` §7 — `short_hash` is the
+> first 8 hex chars of HMAC-SHA256 under a **storage-persisted per-deployment key**
+> (secret slot `"redaction"`), `<type>` is the pattern name lowercased with
+> non-`[a-z0-9_]` folded to `_`, and redaction is a fixpoint over its own
+> placeholders. Two SDKs sharing storage must produce identical placeholders.
+> Also normative there: entropy is computed over **code points** (not UTF-16 units),
+> the effective minimum entropy-candidate length is `max(12, ceil(2^4.5)) = 23`, and
+> the **binary boundary** — UTF-8-decodable bytes-like values are text-redacted and
+> re-encoded, non-UTF-8 binary passes through by documented exemption, set/frozenset
+> members are redacted with container type preserved.
 
 * [Source: https://github.com/BerriAI/litellm/blob/main/litellm/litellm_core_utils/secret_redaction.py (Accessed: 2026-08-08)]
 * [Source: https://mend.github.io/mend-guardrails-python/ref/modules/secret_keys/ (Accessed: 2026-08-08)]

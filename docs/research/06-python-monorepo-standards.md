@@ -63,6 +63,25 @@ chowki/
 * [Source: https://docs.astral.sh/uv/concepts/projects/workspaces/ (Accessed: 2026-08-08)]
 * [Source: https://www.danilchenko.dev/posts/uv-workspaces-monorepo/ (Accessed: 2026-08-08)]
 
+> **Amendment (2026-08-11) — Node toolchain is an unresearched decision surface.**
+> This document establishes Python standards in depth but names **no Node equivalent
+> for any of them**. The Phase 3 (`@chowki/core`) plan must therefore open with
+> explicit toolchain decisions rather than inheriting assumptions: package manager
+> and workspace tool (pnpm vs npm workspaces alongside `uv`), build/output
+> (tsc vs tsup; ESM/CJS dual publish and the `exports` map), test runner
+> (vitest vs `node:test`), property testing (fast-check as the hypothesis analogue),
+> lint/format (biome vs eslint+prettier — the ruff analogue), benchmark harness with
+> assertable wall-clock budgets (tinybench/mitata — budgets.py needs a Node twin
+> enforcing the SAME numbers), a Node version floor, and the decorator strategy:
+> the API is decorator-first, but TC39 stage-3 decorators do not decorate plain
+> functions, so `@chowki/core` likely ships higher-order wrappers
+> (`chowki.step(fn, opts)` / `chowki.workflow(fn)`) as the primary surface. Runtime
+> library equivalents also need pinning: `@msgpack/msgpack` or `msgpackr`
+> (MessagePack), `node:crypto` AES-256-GCM + HMAC + `timingSafeEqual`,
+> `fast-json-patch` or a hand-rolled RFC 6902 subset, and `better-sqlite3` (sync,
+> matching the Python adapter's semantics) vs async drivers. The normative behaviors
+> these tools must reproduce are in `07-cross-sdk-parity.md`.
+
 ### 1.2 Protocol Specification Sharing Strategy
 To prevent state schema drift between `chowki`'s Python SDK, Node SDK, and external Control Plane services, all protocol specs live in the root `spec/` directory as language-neutral primitives.
 
