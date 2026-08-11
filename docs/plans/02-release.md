@@ -298,6 +298,10 @@ without reading source.
 ## Task 7 — Flagship example: the showcase agent
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: implemented agent_review.py, test_agent_example.py -> FAIL (--crash-after called os._exit(1) making recover/rerun demo block unreachable, workflow prompt parameter default needed for rerun memoisation)
+- attempt 2: fixed agent_review.py crash handling (RuntimeError + recovery block) and prompt parameter default; updated test_agent_example.py to verify full recovery/rerun arc and zero-waste memoisation -> PASS
 
 **Goal:** the launch demo as runnable code: an LLM tool-use agent with a budget
 auto-pause, an approval gate before a dangerous tool, and the kill-mid-run → `rerun`

@@ -105,7 +105,7 @@ def send_email_tool(draft: dict[str, Any]) -> str:
 
 @chowki.workflow
 def agent_review_workflow(
-    prompt: str = "Audit repository security and email report",
+    prompt: str = "Audit repo security",
     crash_after_step: int | None = None,
 ) -> str:
     """Showcase Agent Workflow: safe search -> draft email -> human approval gate -> send email."""
@@ -118,14 +118,14 @@ def agent_review_workflow(
     plan = agent_plan(prompt)
     if crash_after == 1:
         sys.stderr.write("Simulated crash after step 1\n")
-        os._exit(1)
+        raise RuntimeError("Simulated mid-run crash after step 1")
 
     # Step 2: Safe search tool
     query = str(plan.get("query", prompt))
     results = search_tool(query)
     if crash_after == 2:
         sys.stderr.write("Simulated crash after step 2\n")
-        os._exit(1)
+        raise RuntimeError("Simulated mid-run crash after step 2")
 
     # Step 3: LLM drafts email
     draft = agent_draft_email(results)
@@ -146,7 +146,7 @@ def agent_review_workflow(
 
     if crash_after == 3:
         sys.stderr.write("Simulated crash after step 3 (post-pause)\n")
-        os._exit(1)
+        raise RuntimeError("Simulated mid-run crash after step 3")
 
     # Step 4: Dangerous tool execution
     return send_email_tool(final_draft)
@@ -190,11 +190,11 @@ def main() -> None:
     run_id = "showcase-agent-run-1"
     token = None
 
-    # Step 1: Initial run -> watch soft budget warning & hit approval gate
+    # Step 1: Initial run -> watch soft budget warning & hit approval gate (or simulated crash)
     print("--- [1/4] Running Agent Workflow ---")
     try:
         agent_review_workflow(
-            prompt="Audit repository security and email report",
+            prompt="Audit repo security",
             crash_after_step=args.crash_after,
             run_id=run_id,
         )
@@ -202,9 +202,28 @@ def main() -> None:
         token = exc.token
         print(f"\n[Pause Gate] Workflow paused at step '{exc.step_id}'!")
         print(f"[Pause Gate] Resume Token: {token}\n")
+    except RuntimeError as err:
+        print(f"[CRASH SIMULATED] Process crashed mid-run: {err}\n")
+        run = engine.storage.get_run(run_id)
+        if run is not None:
+            run.status = chowki.RunStatus.RUNNING
+            engine.storage.put_run(run)
+
+        print("--- Recovering Stalled Runs (`chowki recover`) ---")
+        recovered = chowki.recover_runs(engine=engine)
+        print(f"Recovered {len(recovered)} run(s) back to PENDING status.\n")
+
+        print("--- Rerunning Recovered Workflow (`chowki rerun`) ---")
+        try:
+            chowki.rerun(run_id=run_id, engine=engine)
+        except chowki.WorkflowPaused as exc:
+            token = exc.token
+            print(f"\n[Pause Gate] Workflow paused at step '{exc.step_id}'!")
+            print(f"[Pause Gate] Resume Token: {token}\n")
 
     if token is None:
         print("Workflow completed without pausing.")
+        print(f"Total LLM calls executed: {get_llm_call_count()}")
         return
 
     # Step 2: Resume with EDIT decision patching the recipient
@@ -229,25 +248,31 @@ def main() -> None:
             engine=engine,
         )
         print(f"Workflow finished: {res.value}")
+        print(f"Total LLM calls executed: {get_llm_call_count()}")
+        print("(Notice: Completed steps were skipped and NOT re-executed!)\n")
         return
     except RuntimeError as err:
         print(f"[CRASH SIMULATED] Process crashed mid-run: {err}\n")
+        run = engine.storage.get_run(run_id)
+        if run is not None:
+            run.status = chowki.RunStatus.RUNNING
+            engine.storage.put_run(run)
 
-    # Step 3: Recover crashed / stalled run
-    print("--- [3/4] Recovering Stalled Runs (`chowki recover`) ---")
-    recovered = chowki.recover_runs(engine=engine)
-    print(f"Recovered {len(recovered)} run(s) back to PENDING status.\n")
+        # Step 3: Recover crashed / stalled run
+        print("--- [3/4] Recovering Stalled Runs (`chowki recover`) ---")
+        recovered = chowki.recover_runs(engine=engine)
+        print(f"Recovered {len(recovered)} run(s) back to PENDING status.\n")
 
-    # Step 4: Rerun recovered run (`chowki rerun`)
-    print("--- [4/4] Rerunning Recovered Workflow (`chowki rerun`) ---")
-    if "CHOWKI_CRASH_AFTER" in os.environ:
-        del os.environ["CHOWKI_CRASH_AFTER"]
+        # Step 4: Rerun recovered run (`chowki rerun`)
+        print("--- [4/4] Rerunning Recovered Workflow (`chowki rerun`) ---")
+        if "CHOWKI_CRASH_AFTER" in os.environ:
+            del os.environ["CHOWKI_CRASH_AFTER"]
 
-    final_result = chowki.rerun(run_id=run_id, engine=engine)
-    print("\nWorkflow Completed Successfully!")
-    print(f"Result: {final_result}")
-    print(f"Total LLM calls executed across all runs: {get_llm_call_count()}")
-    print("(Notice: Completed steps were skipped and NOT re-executed!)\n")
+        final_result = chowki.rerun(run_id=run_id, engine=engine)
+        print("\nWorkflow Completed Successfully!")
+        print(f"Result: {final_result}")
+        print(f"Total LLM calls executed across all runs: {get_llm_call_count()}")
+        print("(Notice: Completed steps were skipped and NOT re-executed!)\n")
 
 
 if __name__ == "__main__":
