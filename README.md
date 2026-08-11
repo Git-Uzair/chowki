@@ -107,3 +107,19 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 ```
+
+## Showcase: The Zero-Waste Agent (`examples/python/agent_review.py`)
+
+Check out [`examples/python/agent_review.py`](examples/python/agent_review.py) for a complete, runnable showcase demonstrating Chowki's core capabilities in action:
+
+1. **Self-contained LLM tool-use agent:** Runs out of the box with a deterministic fake LLM (no external API keys needed) and includes a clearly marked 5-line snippet to swap in OpenAI/Anthropic SDKs.
+2. **Active token budget guardrails:** Reports token usage via `chowki.report_usage()` and triggers soft warnings when approaching budget limits.
+3. **Human-in-the-Loop approval gate:** Automatically pauses at `chowki.pause()` before dangerous side-effect tools (like sending email).
+4. **Interactive state patch on resume:** Resume via CLI with an `EDIT` decision to patch draft parameters (e.g. updating an email recipient).
+5. **Zero-waste crash recovery:** Simulate a mid-run process crash with `--crash-after 3`, then recover (`chowki recover`) and rerun (`chowki rerun`). Previous LLM steps are memoised and skipped — **0 duplicate LLM calls or wasted tokens**.
+
+Run the showcase agent:
+
+```bash
+uv run python examples/python/agent_review.py
+```
