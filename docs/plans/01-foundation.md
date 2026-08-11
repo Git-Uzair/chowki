@@ -5585,9 +5585,11 @@ if gateway is not None:
 ## Task 22 — Public API surface, telemetry, examples, and docs
 
 **Status:** COMPLETED
-**Failed Verify Cycles:** 0
+**Failed Verify Cycles:** 2
 **Attempt Ledger:**
-- attempt 1: Implement public API surface (`__all__`), structured logging and OTel tracing telemetry, JSON schema for SnapshotEnvelope, quickstart example, architecture overview, and README update -> PASS
+- attempt 1: Implement public API surface (`__all__`), structured logging and OTel tracing telemetry, JSON schema for SnapshotEnvelope, quickstart example, architecture overview, and README update -> FAIL (report_usage updated budget.total but not ctx.usage so persisted usage was 0; configure_logging dropped logger field from production JSON)
+- attempt 2: Update report_usage and RunContext.usage tracking across pause/resume/close, add logger/level processors in telemetry/logging.py -> FAIL (uncovered PAUSED usage persistence/resume carry-over paths and ChowkiConfig(tracing_enabled=True) tracing wiring)
+- attempt 3: Add unit tests pinning PAUSED usage persistence, resume carryover, and `ChowkiConfig(tracing_enabled=True)` OTel spans and snapshot metrics in `test_public_api.py` and `test_telemetry.py` -> PASS
 
 **Goal:** Make `import chowki` expose exactly the documented surface, wire structured
 logging and OTel, and ship a runnable example.
@@ -5737,6 +5739,11 @@ def test_metrics_are_a_no_op_without_the_otel_sdk() -> None:
 ---
 
 ## Task 23 — End-to-end integration test and full-harness verification
+
+**Status:** COMPLETED
+**Failed Verify Cycles:** 0
+**Attempt Ledger:**
+- attempt 1: Implement `test_end_to_end.py` lifecycle and crash recovery tests, update `recover_runs` to handle failed runs, and pass full CI suite -> PASS
 
 **Goal:** One test that exercises the entire Phase 1 promise in a single run against real
 SQLite, plus a clean sweep of every command.
