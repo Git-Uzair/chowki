@@ -31,6 +31,7 @@ def test_public_surface_is_exactly_as_documented() -> None:
         "current_run",
         "pause",
         "recover_runs",
+        "reissue_token",
         "release_step",
         "report_usage",
         "resumable_runs",

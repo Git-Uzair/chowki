@@ -136,6 +136,77 @@ def test_a_step_called_after_a_pause_is_refused(engine: ChowkiEngine) -> None:
     assert engine.pipeline_for("r5").load(snaps) == {"draft": "ready"}
 
 
+def test_reissue_token_recovers_a_lost_pause_token(engine: ChowkiEngine) -> None:
+    """The escape hatch for a lost or burnt token: a PAUSED run can always mint a
+    fresh one from its stored pause request."""
+    import chowki
+    from chowki.core.runner import reissue_token
+
+    @workflow(engine=engine)
+    def gated() -> str:
+        pause(reason="approve")
+        return "done"
+
+    with pytest.raises(WorkflowPaused):
+        gated(run_id="rt")
+
+    token = reissue_token("rt", engine=engine)
+    result = chowki.resume(
+        run_id="rt",
+        token=token,
+        decision=chowki.Decision.APPROVE,
+        workflow_fn=gated,
+        engine=engine,
+    )
+    assert result.value == "done"
+
+
+def test_reissue_token_rejects_a_run_that_is_not_paused(engine: ChowkiEngine) -> None:
+    from chowki.core.runner import reissue_token
+    from chowki.errors import ChowkiStateError
+
+    with pytest.raises(ChowkiStateError):
+        reissue_token("never-ran", engine=engine)
+
+    @workflow(engine=engine)
+    def plain() -> str:
+        return "done"
+
+    plain(run_id="rt2")
+    with pytest.raises(ChowkiStateError):
+        reissue_token("rt2", engine=engine)
+
+
+def test_reissue_token_re_notifies_the_gateway(tmp_path: object) -> None:
+    from chowki.config import ChowkiConfig
+    from chowki.core.runner import reissue_token
+    from chowki.hitl.gateway import InMemoryGateway
+    from chowki.storage.memory import MemoryStorage
+
+    gateway = InMemoryGateway()
+    eng = ChowkiEngine(
+        ChowkiConfig(storage=MemoryStorage(), gateway=gateway, resume_secret=b"s" * 32)
+    )
+
+    @workflow(engine=eng)
+    def gated() -> str:
+        pause(reason="approve")
+        return "done"
+
+    with contextlib.suppress(WorkflowPaused):
+        gated(run_id="rg")
+    assert len(gateway.notices) == 1
+
+    token = reissue_token("rg", engine=eng)
+    assert len(gateway.notices) == 2
+    assert gateway.notices[1][0].token == token
+
+    silent = reissue_token("rg", engine=eng, notify=False)
+    assert len(gateway.notices) == 2
+    assert silent != token
+    eng.close()
+
+
 def test_pause_outside_a_workflow_is_an_error() -> None:
     with pytest.raises(LookupError):
         pause(reason="nope")
