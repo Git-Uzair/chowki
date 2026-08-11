@@ -181,6 +181,7 @@ Clients can poll state using `chowki.inspect_run(run_id)` or listen for webhooks
 2. **Never Log Tokens:** Resume tokens carry HMAC credentials. Never write full tokens to application logs, telemetry, or query strings.
 3. **Token Reissuance:** If a token expires or is lost, call `chowki.reissue_token(run_id)` to issue a fresh single-use token for the paused gate.
 4. **Token Provenance:** Resume tokens originate from `WorkflowPaused.token`, gateway notification payloads, or CLI commands (`chowki reissue-token`).
+5. **Permitted Actions Scoping:** `chowki.pause()` defaults to `permitted_actions=("APPROVE", "REJECT")`. If a caller sends `EDIT` or `ESCALATE` when the pause gate did not permit it, `InvalidResumeToken` is raised resulting in 401.
 
 ---
 

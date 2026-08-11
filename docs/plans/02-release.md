@@ -202,6 +202,10 @@ gateway message matches reality.
 ## Task 5 — Production resume guide: approvals from your own web app
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: implemented resuming-in-production.md, fastapi_approvals.py, test_embedding_recipes.py -> FAIL (fastapi route params typed req: Any instead of ResumeRequest/BackgroundTasks, test file duplicated handler instead of testing fastapi_approvals.py, permitted_actions scoping note missing in guide)
+- attempt 2: fixed fastapi route params (ResumeRequest/BackgroundTasks), directly imported/tested process_resume/aprocess_resume from fastapi_approvals.py, added permitted_actions test cases and guide documentation -> PASS
 
 **Goal:** the "REST endpoint" story, correctly scoped: **chowki serves nothing** —
 users add a route to the app they already run and call `resume`/`aresume` in the
