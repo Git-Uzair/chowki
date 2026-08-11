@@ -92,7 +92,7 @@ matrix in sync.
 | Encryption at rest | AES-256-GCM, 96-bit random nonce, AAD = `tenant:run:vN`; KeyRing with active key id + rotation; env bootstrap; **off by default**. | 07 §3 | ✅ | ⬜ |
 | Canonical JSON + content hash | RFC 8785 subset: NFC, UTF-16 ordering for astral keys, dup-key error, `sha256:` prefix. ES number formatting = Phase 3 on both SDKs. | 07 §1 | ✅ | ⬜ |
 | Two hash semantics | `content_hash` = cross-SDK identity; envelope `state_hash` = writer-local integrity only. | 07 §2 | ✅ | ⬜ |
-| Durability semantics | Synchronous dispatch: a snapshot is durable before the step returns (ratification + doc alignment in flight). | 02-release T9 | 🔜 2 | ⬜ |
+| Durability semantics | Synchronous dispatch: a snapshot is durable before the step returns; state committed synchronously to storage before step return. | 02-release T9 | ✅ | ⬜ |
 
 ## 3. Suspension & HITL
 

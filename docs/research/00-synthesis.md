@@ -182,11 +182,13 @@ $$\text{Total Per-Step Overhead Budget Target} \le \mathbf{2.0 \text{ ms}}$$
 | 2. Struct Encoding (MessagePack)   | < 0.3 ms         | msgspec C Struct encoder  |
 | 3. Canonical Hashing (SHA-256)     | < 0.3 ms         | hashlib / msgspec C digest|
 | 4. AES-256-GCM AEAD Encryption     | < 0.4 ms         | OpenSSL AES-NI hardware   |
-| 5. Storage Buffer Queue Dispatch   | < 0.2 ms         | Async in-process memory queue|
+| 5. Storage Dispatch                 | < 0.2 ms         | Synchronous write-through dispatch|
 +------------------------------------+------------------+---------------------------+
 | TOTAL PER-STEP OVERHEAD BUDGET     | < 2.0 ms         | Embedded In-Process       |
 +------------------------------------+------------------+---------------------------+
 ```
+
+> **Amendment (2026-08-11, normative):** Synchronous dispatch durability is ratified: state snapshots are flushed and committed synchronously to storage before a step returns (SIGKILL at any point after step return loses zero state). Row 5 is enforced as synchronous write-through storage dispatch.
 
 ### 5.2 Storage & Memory Footprint Budgets
 * **Payload Size Reduction:** $> 75\%$ size reduction compared to full JSON state dumps via MessagePack binary encoding and RFC 6902 delta persistence `[02-serialization.md]`.

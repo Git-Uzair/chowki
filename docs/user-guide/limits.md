@@ -57,6 +57,13 @@ Always treat secret redaction as an additional layer of security rather than a r
 
 ---
 
+## 6. Synchronous Persistence & Durability Contract
+
+- **Synchronous Persistence:** State snapshots are committed to storage before a step returns. SIGKILL after step return loses no state.
+- **Zero Loss on Acknowledged Steps:** Once `@chowki.step` finishes execution, its state snapshot and idempotency record are guaranteed durable in persistent storage.
+
+---
+
 ## What Can Go Wrong
 
 1. **Running `asyncio.gather()` Over Steps:** Wrapping `@chowki.step` functions in `asyncio.gather()` causes state delta corruption or race conditions. Run steps sequentially within a workflow, or run independent workflows concurrently.

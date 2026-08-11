@@ -411,11 +411,13 @@ $$\text{Total Per-Step Overhead Target} \le \mathbf{2.0 \text{ ms}}$$
 | 2. Struct Encoding (MessagePack)  | < 0.3 ms           | msgspec C struct encoder                |
 | 3. Canonical Hashing (SHA-256)    | < 0.3 ms           | hashlib / msgspec C digest              |
 | 4. AES-256-GCM Encryption         | < 0.4 ms           | cryptography.hazmat C/OpenSSL (AES-NI)  |
-| 5. Buffer / I/O Dispatch          | < 0.2 ms           | Async local buffer queue                |
+| 5. Storage Dispatch              | < 0.2 ms           | Synchronous write-through storage dispatch |
 +-----------------------------------+--------------------+-----------------------------------------+
-| TOTAL STEP OVERHEAD BUDGET        | < 2.0 ms           | Non-blocking in-process execution       |
+| TOTAL STEP OVERHEAD BUDGET        | < 2.0 ms           | Synchronous in-process persistence      |
 +-----------------------------------+--------------------+-----------------------------------------+
 ```
+
+> **Amendment (2026-08-11, normative):** Synchronous write-through storage dispatch is ratified and enforced — state snapshots are flushed and committed synchronously to storage before a step returns. SIGKILL at any point after a step returns loses zero acknowledged step state.
 
 #### Storage Size Overhead Budget Target
 
