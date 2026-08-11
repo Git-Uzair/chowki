@@ -33,18 +33,37 @@ Run in normal mode:
 uv run python examples/python/agent_review.py
 ```
 
-Run with crash simulation & CLI recovery:
+`--crash-after N` simulates a process dying mid-run after step N (1, 2, or 3; `CHOWKI_CRASH_AFTER=N`
+does the same). There are two ways to come back from that crash.
+
+**Automatic, in-script recovery** — the script recovers and reruns itself:
 
 ```bash
-# 1. Run agent with simulated crash after post-pause step 3
-uv run python examples/python/agent_review.py --crash-after 3
+uv run python examples/python/agent_review.py --crash-after 1
+```
 
-# 2. Recover stalled run back to PENDING status
+It prints `Total LLM calls executed: 2`: the step that completed before the crash is
+memoised, so the rerun never repeats its LLM call.
+
+**Manual, operator-driven recovery** — `--no-auto-recover` exits 1 and leaves the run stalled
+in `RUNNING` status, exactly as a `kill -9` would, so you can drive the recovery yourself:
+
+```bash
+# 1. Crash after the post-approval step 3, leaving the run stalled for an operator
+uv run python examples/python/agent_review.py --crash-after 3 --no-auto-recover
+
+# 2. Recover the stalled run back to PENDING status
 uv run chowki --db ./chowki.db -m examples.python.agent_review recover
 
-# 3. Rerun recovered run — completed LLM steps are skipped and not re-executed!
+# 3. Rerun the recovered run — completed LLM steps are skipped and not re-executed!
 uv run chowki --db ./chowki.db -m examples.python.agent_review rerun showcase-agent-run-1
 ```
+
+Step 3 prints `Reran showcase-agent-run-1: Email sent to security-team@example.com ...` — a
+fresh process, zero repeated LLM calls, and the approval decision replayed from the audit log.
+Crash before the approval gate instead (`--crash-after 1 --no-auto-recover`) and the rerun stops
+at that gate, reporting `run showcase-agent-run-1 paused at pause#3`; resume it with
+`chowki ... resume` (see `--help`) or let the automatic mode above handle it.
 
 ## Best Practices
 

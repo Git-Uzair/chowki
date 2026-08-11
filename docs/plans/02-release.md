@@ -297,11 +297,12 @@ without reading source.
 
 ## Task 7 — Flagship example: the showcase agent
 
-**Status:** COMPLETED
-**Failed Verify Cycles:** 1
+**Status:** PENDING
+**Failed Verify Cycles:** 2
 **Attempt Ledger:**
 - attempt 1: implemented agent_review.py, test_agent_example.py -> FAIL (--crash-after called os._exit(1) making recover/rerun demo block unreachable, workflow prompt parameter default needed for rerun memoisation)
-- attempt 2: fixed agent_review.py crash handling (RuntimeError + recovery block) and prompt parameter default; updated test_agent_example.py to verify full recovery/rerun arc and zero-waste memoisation -> PASS
+- attempt 2: changed crash simulation to RuntimeError, set default prompt="Audit repo security", updated main() to catch crash and run recover + rerun -> FAIL (CHOWKI_CRASH_AFTER env var missing pop before rerun in first crash branch, README CLI recovery instructions needed sync with script flags)
+- attempt 3 (opus-coder): popped CHOWKI_CRASH_AFTER in both crash branches before rerun; added `--no-auto-recover` so a simulated crash exits 1 and leaves the run stalled in RUNNING for the documented `chowki recover` + `chowki rerun` arc; rewrote the examples README to document both modes; added integration tests for the env-var trigger and for the operator CLI arc (memoisation proved by unchanged LLM step records across processes)
 
 **Goal:** the launch demo as runnable code: an LLM tool-use agent with a budget
 auto-pause, an approval gate before a dangerous tool, and the kill-mid-run → `rerun`
