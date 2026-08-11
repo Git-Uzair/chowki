@@ -6,6 +6,9 @@ import importlib.metadata
 import importlib.resources
 import shutil
 import subprocess
+import tarfile
+import zipfile
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -71,3 +74,35 @@ def test_package_classifiers_and_metadata() -> None:
     assert "Operating System :: OS Independent" in classifiers
     assert "Typing :: Typed" in classifiers
     assert "License :: OSI Approved :: MIT License" in classifiers
+
+
+def test_license_file_in_sdist_and_wheel() -> None:
+    """Verify that LICENSE file is included in both sdist tarball and wheel zip."""
+    root_dir = Path(__file__).resolve().parents[4]
+    dist_dir = root_dir / "dist"
+
+    build_cmd = ["uv", "build", "--package", "chowki"]
+    res = subprocess.run(build_cmd, cwd=root_dir, capture_output=True, text=True, check=False)  # noqa: S603
+    assert res.returncode == 0, f"uv build failed: {res.stderr}"
+
+    sdists = list(dist_dir.glob("*.tar.gz"))
+    wheels = list(dist_dir.glob("*.whl"))
+    assert sdists, "No sdist found in dist/"
+    assert wheels, "No wheel found in dist/"
+
+    sdist_path = max(sdists, key=lambda p: p.stat().st_mtime)
+    wheel_path = max(wheels, key=lambda p: p.stat().st_mtime)
+
+    with tarfile.open(sdist_path) as tar:
+        sdist_names = tar.getnames()
+        assert any(
+            name.endswith("LICENSE") or "/LICENSE" in name or name == "LICENSE"
+            for name in sdist_names
+        ), f"LICENSE not found in sdist {sdist_path.name}"
+
+    with zipfile.ZipFile(wheel_path) as zf:
+        wheel_names = zf.namelist()
+        assert any(
+            name.endswith("LICENSE") or "/LICENSE" in name or name == "LICENSE"
+            for name in wheel_names
+        ), f"LICENSE not found in wheel {wheel_path.name}"

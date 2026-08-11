@@ -335,6 +335,9 @@ section matches the code.
 ## Task 8 — Packaging & release engineering
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: implemented CHANGELOG.md, pyproject.toml, release.yml, wheel_smoke_test.py, test_package_metadata.py -> FAIL (LICENSE file missing in sdist/wheel, ci.yml missing wheel_smoke_test job, pyproject.toml repo URL mismatch, features.md row claimed live PyPI release)
 
 **Goal:** `release.yml` has never fired; the version is running on hatch-vcs
 fallback; there is no CHANGELOG. Make the release mechanics boringly verified.

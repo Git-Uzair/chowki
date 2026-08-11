@@ -29,10 +29,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/chowki-ai/chowki"
-Repository = "https://github.com/chowki-ai/chowki"
-Documentation = "https://github.com/chowki-ai/chowki#readme"
-Issues = "https://github.com/chowki-ai/chowki/issues"
+Homepage = "https://github.com/Git-Uzair/chowki"
+Repository = "https://github.com/Git-Uzair/chowki"
+Documentation = "https://github.com/Git-Uzair/chowki#readme"
+Issues = "https://github.com/Git-Uzair/chowki/issues"
 
 [project.optional-dependencies]
 otel = ["opentelemetry-sdk>=1.27.0"]
@@ -46,6 +46,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/chowki"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"LICENSE" = "LICENSE"
+
+[tool.hatch.build.targets.wheel.force-include]
+"LICENSE" = "LICENSE"
 
 [tool.hatch.version]
 source = "vcs"

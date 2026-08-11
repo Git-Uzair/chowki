@@ -148,7 +148,7 @@ matrix in sync.
 | CLI | `runs list/show`, `resume` (sync + async), `reissue-token`, `release-step`, `complete-step`, `recover`, `rerun`. | 02-release T4 | ✅ | ⬜ |
 | Inspection API | `inspect_run(run_id)`: record, steps, latest redacted state, audit — without touching live pipeline state. | 02-release T3 | ✅ | ⬜ |
 | Embedded approval endpoints | Bring-your-own web app: documented FastAPI/Flask handlers calling `resume`/`aresume`, normative exception → HTTP mapping, background-execution pattern. chowki serves nothing; the token is the credential. | 02-release T5 | ✅ | ⬜ |
-| User guide + flagship example + packaging | `docs/user-guide/`, the showcase agent (budget pause, approval gate, kill → `rerun`), CHANGELOG, PyPI release. | 02-release T6–T8 | ✅ | — |
+| User guide + flagship example + packaging | `docs/user-guide/`, the showcase agent (budget pause, approval gate, kill → `rerun`), CHANGELOG, PyPI release. | 02-release T6–T8 | ✅ (Local build, wheel smoke test, release workflow verified; PyPI publish pending maintainer tag) | — |
 | Spec vectors + schemas | `spec/v1/` schemas for every wire struct + generated conformance vectors (canonical hashes, placeholders, tokens, args-hashes) with a CI drift gate. Node's conformance suite. | Phase 3 spec prep | 🔜 3 | consumes |
 | Provider integrations (auto-usage), testing kit, outbox | — | Phase 6 | 🔜 6 | 🔜 6 |
 
