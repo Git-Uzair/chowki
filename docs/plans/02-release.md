@@ -33,7 +33,7 @@ parallel once 1–2 are in; Task 8 requires all code tasks done.
 
 ## Task 1 — Workflow registry, resume-by-name, and `rerun`
 
-**Status:** PENDING
+**Status:** COMPLETED
 
 **Goal:** callers stop passing workflow function references around; recovered runs
 become re-runnable. This is the enabler for both the CLI and the embed-in-your-app
@@ -395,3 +395,5 @@ DONE.
   the guide breaks CI when the API moves, instead of rotting.
 - **R5 — Release workflow surprises.** That is what the TestPyPI rc is for; never
   debug publishing on the real `v0.1.0` tag.
+
+PLAN COMPLETE

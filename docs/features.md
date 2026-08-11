@@ -70,7 +70,7 @@ matrix in sync.
 | Warm resume | Newest BASE + deltas reconstruct state; re-execution from the top with memoisation; snapshot indices always continue above stored max (replays never overwrite history). | 07 §8/§9 | ✅ | ⬜ |
 | Side-effect rule (R4) | Every side effect must live inside a step: resume re-executes the workflow body. Documented in API docs, quickstart, `AGENTS.md`. | [03-durable-execution](research/03-durable-execution.md) | ✅ | ⬜ |
 | Single-writer-per-run | Concurrency inside one run (gather/`Promise.all` over steps) is undefined behavior until Phase 6 branch keys. Must be documented loudly in Node. | 07 §13 | ✅ (documented) | ⬜ |
-| Workflow registry | Register workflows by name at decoration; `resume`/`rerun` resolve by name so callers don't pass function references. | 02-release T1 | 🔜 2 | ⬜ |
+| Workflow registry | Register workflows by name at decoration; `resume`/`rerun` resolve by name so callers don't pass function references. | 02-release T1 | ✅ | ⬜ |
 | Async-aware resume (`aresume`) | Awaitable resume for async workflows; sync `resume()` refuses coroutine workflows loudly instead of returning an unawaited coroutine (verified Phase 1 bug). | 02-release T2 | 🔜 2 | ⬜ |
 | Parallel steps, child workflows, cancellation, timers, signals | Deliberately absent everywhere until designed once. | 07 §13 | 🔜 6 | 🔜 6 |
 
@@ -144,7 +144,7 @@ matrix in sync.
 |---|---|---|---|---|
 | Engine + config | Storage/tenant/encryption/keyring/redaction-key/resume-secret/guardrails/gateway/blob-threshold/db-path/tracing; process-global `configure()`/`get_engine()`/`reset_engine()`; per-run pipeline memo dropped on terminal states. | source: `chowki/config.py` | ✅ | ⬜ |
 | Public API surface | `step, workflow, pause, resume, configure, current_run, report_usage, record_text, record_transition, recover_runs, resumable_runs, reissue_token, release_step, complete_step` + types/errors. Pinned by a test. | `chowki/__init__.py` | ✅ | ⬜ |
-| Workflow registry + resume-by-name | See §1. | 02-release T1 | 🔜 2 | ⬜ |
+| Workflow registry + resume-by-name | See §1. | 02-release T1 | ✅ | ⬜ |
 | CLI | `runs list/show`, `resume` (sync + async), `reissue-token`, `release-step`, `complete-step`, `recover`, `rerun`. | 02-release T4 | 🔜 2 | ⬜ |
 | Inspection API | `inspect_run(run_id)`: record, steps, latest redacted state, audit — without touching live pipeline state. | 02-release T3 | 🔜 2 | ⬜ |
 | Embedded approval endpoints | Bring-your-own web app: documented FastAPI/Flask handlers calling `resume`/`aresume`, normative exception → HTTP mapping, background-execution pattern. chowki serves nothing; the token is the credential. | 02-release T5 | 🔜 2 | ⬜ |

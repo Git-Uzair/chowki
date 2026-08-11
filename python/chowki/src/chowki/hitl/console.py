@@ -33,7 +33,7 @@ class ConsoleGateway:
         print("=" * 60)
         print(
             f"To resume: chowki.resume(run_id={notice.run_id!r}, token=<above>,"
-            " decision=chowki.Decision.APPROVE, workflow_fn=<the workflow>)"
+            " decision=chowki.Decision.APPROVE)"
         )
         print("Lost the token later? chowki.reissue_token(run_id) mints a new one.")
         print("=" * 60)

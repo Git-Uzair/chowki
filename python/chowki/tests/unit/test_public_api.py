@@ -36,6 +36,7 @@ def test_public_surface_is_exactly_as_documented() -> None:
         "reissue_token",
         "release_step",
         "report_usage",
+        "rerun",
         "resumable_runs",
         "resume",
         "step",

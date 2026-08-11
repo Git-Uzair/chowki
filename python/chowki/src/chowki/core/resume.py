@@ -16,7 +16,9 @@ import structlog
 from msgspec.structs import replace as msgspec_replace
 
 from chowki.config import ChowkiEngine, get_engine
+from chowki.core.registry import get_workflow
 from chowki.errors import (
+    ChowkiConfigError,
     ChowkiStateError,
     ExpiredResumeToken,
     HumanRejectedError,
@@ -67,14 +69,7 @@ def _persist_state_of_record(engine: ChowkiEngine, run: RunRecord, state: dict[s
 
 
 def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any:
-    try:
-        return workflow_fn(run_id=run_id)
-    except TypeError as exc:
-        if exc.__traceback__ is not None and exc.__traceback__.tb_next is not None:
-            raise
-        if "unexpected keyword argument" in str(exc) or "run_id" in str(exc):
-            return workflow_fn()
-        raise
+    return workflow_fn(run_id=run_id)
 
 
 def _confirm_gateway(
@@ -96,7 +91,8 @@ def resume(
     run_id: str,
     token: str,
     decision: Decision,
-    workflow_fn: Callable[..., Any],
+    workflow_fn: Callable[..., Any] | None = None,
+    workflow: str | None = None,
     engine: ChowkiEngine | None = None,
     patch: Patch | None = None,
     actor: JSONObject | None = None,
@@ -110,8 +106,8 @@ def resume(
         any side effect outside a `@chowki.step` will be re-executed on warm resume.
 
     Note (Phase 2):
-        Workflow registry integration will allow resuming workflows by string name
-        rather than requiring explicit `workflow_fn` function reference.
+        Workflow registry resolves workflows by string name (`workflow=`) or from the
+        run record when `workflow_fn` is omitted.
     """
     eff_engine = engine or get_engine()
 
@@ -250,7 +246,26 @@ def resume(
     seed = reviewed if pause_origin == "gate" else state
     eff_engine.pending_resume_state[run_id] = (claims.step_id, seed)
 
-    val = _invoke_workflow(workflow_fn, run_id)
+    target_fn = workflow_fn
+    if target_fn is None:
+        if workflow is not None:
+            target_fn = get_workflow(workflow)
+            if target_fn is None:
+                msg = (
+                    f"workflow {workflow!r} not found in registry; "
+                    "import the module defining the workflow or pass workflow_fn"
+                )
+                raise ChowkiConfigError(msg)
+        else:
+            target_fn = get_workflow(run.workflow)
+            if target_fn is None:
+                msg = (
+                    f"workflow {run.workflow!r} not found in registry; "
+                    "import the module defining the workflow or pass workflow_fn"
+                )
+                raise ChowkiConfigError(msg)
+
+    val = _invoke_workflow(target_fn, run_id)
 
     return ResumeResult(
         run_id=run_id,
@@ -259,3 +274,25 @@ def resume(
         state_hash_before=state_hash_before,
         state_hash_after=state_hash_after,
     )
+
+
+def rerun(
+    run_id: str,
+    *,
+    engine: ChowkiEngine | None = None,
+) -> Any:
+    """Rerun a recovered or incomplete workflow run by run_id."""
+    eff_engine = engine or get_engine()
+    run = eff_engine.storage.get_run(run_id)
+    if run is None:
+        raise ChowkiStateError(f"chowki run {run_id!r} not found")
+
+    workflow_fn = get_workflow(run.workflow)
+    if workflow_fn is None:
+        msg = (
+            f"workflow {run.workflow!r} not found in registry; "
+            "import the module defining the workflow"
+        )
+        raise ChowkiConfigError(msg)
+
+    return _invoke_workflow(workflow_fn, run_id)

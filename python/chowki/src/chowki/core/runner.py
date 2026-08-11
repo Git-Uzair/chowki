@@ -11,6 +11,7 @@ import structlog
 
 from chowki.config import ChowkiEngine, get_engine
 from chowki.core.context import RunContext, current_run, run_scope
+from chowki.core.registry import register_workflow
 from chowki.errors import (
     BudgetExceeded,
     ChowkiConfigError,
@@ -180,6 +181,7 @@ def workflow(
     name: str | None = None,
     engine: ChowkiEngine | None = None,
     tenant_id: str | None = None,
+    register: bool = True,
 ) -> Callable[[Callable[P, R]], Callable[..., R]]: ...
 
 
@@ -189,6 +191,7 @@ def workflow(
     name: str | None = None,
     engine: ChowkiEngine | None = None,
     tenant_id: str | None = None,
+    register: bool = True,
 ) -> Any:
     """Decorator to define a Chowki workflow.
 
@@ -237,7 +240,7 @@ def workflow(
                     finally:
                         _close_run(ctx, record, exc_occurred)
 
-            return cast(Callable[..., R], async_wrapper)
+            wrapper = cast(Callable[..., R], async_wrapper)
         else:
 
             @functools.wraps(fn)
@@ -267,7 +270,12 @@ def workflow(
                     finally:
                         _close_run(ctx, record, exc_occurred)
 
-            return cast(Callable[..., R], sync_wrapper)
+            wrapper = cast(Callable[..., R], sync_wrapper)
+
+        if register:
+            register_workflow(workflow_name, wrapper)
+
+        return wrapper
 
     if callable(func):
         return decorator(func)
