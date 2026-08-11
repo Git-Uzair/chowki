@@ -5740,11 +5740,14 @@ def test_metrics_are_a_no_op_without_the_otel_sdk() -> None:
 
 ## Task 23 — End-to-end integration test and full-harness verification
 
-**Status:** IN PROGRESS
-**Failed Verify Cycles:** 2
+**Status:** COMPLETED
+**Failed Verify Cycles:** 4
 **Attempt Ledger:**
 - attempt 1: Implement test_end_to_end.py lifecycle and crash recovery tests, update recover_runs to re-arm FAILED runs -> FAIL (recover_runs incorrectly re-armed FAILED runs instead of only RUNNING runs; token replay test used generic ChowkiError on COMPLETED run)
 - attempt 2: Revert FAILED re-arm in recover_runs, pin ReplayedNonceError and partial workflow_fn in test_end_to_end.py, add test_recovery.py -> FAIL (unnecessary inert production edit in runner.py; plan ledger was not synchronized)
+- attempt 3: Revert runner.py to match base commit 4b0f49f, keep test_end_to_end.py and test_recovery.py -> FAIL (test_full_lifecycle checked chowki.db file only while SQLite WAL mode writes pages to chowki.db-wal)
+- attempt 4: Update step 3 in test_end_to_end.py to inspect all chowki.db* files (including WAL) -> FAIL (structlog global configuration in test_telemetry.py leaked capsys stream into subsequent tests, raising I/O on closed file on recover_runs logging)
+- attempt 5: Add `try...finally: structlog.reset_defaults()` in `test_telemetry.py` to prevent structlog capsys stream leak into subsequent tests -> PASS
 
 **Goal:** One test that exercises the entire Phase 1 promise in a single run against real
 SQLite, plus a clean sweep of every command.
