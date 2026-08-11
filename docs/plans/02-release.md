@@ -85,6 +85,7 @@ Update the pinned public-API set (`rerun` joins `__all__`).
 **Failed Verify Cycles:** 1
 **Attempt Ledger:**
 - attempt 1: implemented aresume and _decide helper -> FAIL (docs/features.md public API row omitted aresume)
+- attempt 2: added aresume to docs/features.md public API row -> PASS
 
 **Goal:** `resume()` on an **async** workflow currently returns an unawaited
 coroutine: the body never re-executes, the run is left RUNNING, and
@@ -123,7 +124,7 @@ workflow works. `aresume` joins `__all__` and the pinned API test.
 
 ## Task 3 — Inspection API: `inspect_run`
 
-**Status:** PENDING
+**Status:** COMPLETED
 
 **Goal:** the "inspect" leg of the control-plane pitch: one call returning everything
 about a run, without disturbing live pipeline state.
