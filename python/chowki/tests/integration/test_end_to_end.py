@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 import chowki
 from chowki.config import ChowkiConfig, ChowkiEngine
 from chowki.core.context import current_run
+from chowki.errors import ReplayedNonceError
 from chowki.hitl.gateway import InMemoryGateway
 from chowki.storage.sqlite import SQLiteStorage
 from chowki.types import Decision, JSONObject, RunStatus
@@ -50,7 +52,7 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
         return f"sent {proposal['amount']} to {proposal['recipient']}"
 
     @chowki.workflow(engine=engine)
-    def payout(goal: str = "pay the vendor") -> str:
+    def payout(goal: str) -> str:
         proposal = plan(goal)
         current_run().state["proposal"] = proposal
         chowki.report_usage(chowki.Usage(input_tokens=1200, output_tokens=300, cost_usd=0.02))
@@ -100,7 +102,7 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
             {"op": "test", "path": "/proposal/amount", "value": 5000},
             {"op": "replace", "path": "/proposal/recipient", "value": "vendor@example.com"},
         ],
-        workflow_fn=payout,
+        workflow_fn=functools.partial(payout, "pay the vendor"),
         engine=engine,
         actor={"platform": "web", "user_id": "U1"},
     )
@@ -119,9 +121,13 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
     assert audit[0]["original_state_hash"] != audit[0]["patched_state_hash"]
 
     # 9. The token cannot be replayed.
-    with pytest.raises(chowki.ChowkiError):
+    with pytest.raises(ReplayedNonceError):
         chowki.resume(
-            run_id="e2e", token=token, decision=Decision.APPROVE, workflow_fn=payout, engine=engine
+            run_id="e2e",
+            token=token,
+            decision=Decision.APPROVE,
+            workflow_fn=functools.partial(payout, "pay the vendor"),
+            engine=engine,
         )
 
 
@@ -150,6 +156,12 @@ def test_crash_recovery_across_engine_instances(
         return job
 
     eng1 = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db)))
+
+    # Simulate a process crash (SIGKILL/power loss) where _close_run never gets called
+    def _noop_close(ctx: object, rec: object, exc: object) -> None:
+        pass
+
+    monkeypatch.setattr("chowki.core.runner._close_run", _noop_close)
     with pytest.raises(RuntimeError):
         build(eng1)(run_id="crash")
     eng1.close()
