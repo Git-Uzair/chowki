@@ -263,6 +263,36 @@ def test_a_plain_body_failure_still_fails_the_run() -> None:
     engine.close()
 
 
+def test_an_auto_pause_without_a_gateway_still_pauses_with_a_token() -> None:
+    """No gateway is not "no pause": the notification is optional, the suspension is not.
+
+    Documented in the user guide -- an operator with `gateway=None` still gets a PAUSED
+    run they can inspect and reissue a token for from the CLI.
+    """
+    engine = ChowkiEngine(
+        ChowkiConfig(storage=MemoryStorage(), gateway=None, resume_secret=b"s" * 32)
+    )
+
+    @chowki.step(retries=0)
+    def flaky() -> str:
+        raise ToolExecutionError("downstream 500")
+
+    @chowki.workflow(engine=engine)
+    def wf() -> str:
+        current_run().state["r"] = flaky()
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as excinfo:
+        wf(run_id="ap9")
+    assert excinfo.value.token is not None
+
+    run = engine.storage.get_run("ap9")
+    assert run is not None and run.status is RunStatus.PAUSED
+    assert run.pause is not None and run.pause.origin == "auto"
+    assert chowki.reissue_token("ap9", engine=engine)
+    engine.close()
+
+
 def test_a_rejected_auto_pause_marks_the_run_rejected() -> None:
     engine = _engine()
 

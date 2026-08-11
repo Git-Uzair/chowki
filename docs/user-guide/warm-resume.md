@@ -13,6 +13,12 @@ As execution encounters each `@chowki.step`:
 2. If storage contains a completed `StepRecord` with a matching idempotency key, `chowki` skips function execution and returns the stored result immediately.
 3. If no completed record exists, the step function executes, its result is written to disk, and workflow execution proceeds to the next line.
 
+### Resumable Workflows Take No Required Arguments
+
+Both `resume()` and `rerun()` re-invoke the workflow as `workflow_fn(run_id=run_id)` — that keyword is the only argument they pass. The arguments of the *original* call are not part of the run record and are never replayed, so a workflow with a parameter that has no default cannot be resumed: the re-invocation raises `TypeError: missing 1 required positional argument`.
+
+So a resumable workflow either gives every parameter a default value (as `bad_workflow`/`good_workflow` below do) or takes no parameters at all, and reads its inputs inside steps or from `current_run().state` — the state *is* restored from the last snapshot before the body re-executes, which is exactly why per-run inputs belong there rather than in the signature.
+
 ---
 
 ## The R4 Rule: Every Side Effect Lives in a Step
@@ -32,7 +38,7 @@ def send_welcome_email(user_id: str) -> None:
 
 
 @chowki.workflow
-def bad_workflow(user_id: str) -> None:
+def bad_workflow(user_id: str = "u_123") -> None:
     # BAD: Side effect outside a step!
     # This print/email runs on EVERY warm resume!
     send_welcome_email(user_id)
@@ -58,7 +64,7 @@ def deliver_welcome_email(user_id: str) -> bool:
 
 
 @chowki.workflow
-def good_workflow(user_id: str) -> None:
+def good_workflow(user_id: str = "u_123") -> None:
     # GOOD: Side effect inside a step!
     # On warm resume, deliver_welcome_email is skipped and its cached result is returned.
     deliver_welcome_email(user_id)
@@ -132,7 +138,9 @@ When a step fails with a transient or retryable exception (such as rate limits o
 - **Exponential Backoff:** Each retry sleeps for a full-jitter delay — a uniform random value between `0` and `min(retry_base_seconds * (2 ** attempt), retry_max_seconds)` (defaults: `retry_base_seconds = 1.0`, `retry_max_seconds = 30.0`).
 - **Breaker Actions:** If `max_auto_retries` attempts are exhausted or a non-retryable exception occurs, the anomaly breaker decides what happens to the run:
   - `PAUSE` — the run auto-pauses (`PAUSED`), freezing state and minting a resume token so an operator can intervene, and `WorkflowPaused` is raised from the original error.
-  - `ABORT` — the original exception propagates out of the workflow and the run is recorded `FAILED`. A breaker that wanted to pause aborts instead when no HITL gateway is available.
+  - `ABORT` — the original exception propagates out of the workflow and the run is recorded `FAILED`. That is the fate of a non-retryable exception, a context-window error that one summarize attempt did not fix, a budget breach with `hard_budget_action` set to `"ABORT"`, and every failure while guardrails are switched off.
+
+**An auto-pause does not need a gateway.** A configured `gateway` is only how reviewers are *notified*. With `gateway=None` (the default), a guardrail auto-pause still writes the `PauseRequest`, still moves the run to `PAUSED`, and still mints the resume token it carries on `WorkflowPaused.token` — nothing is downgraded to `ABORT`. The notification step is simply skipped, so the token reaches you through the raised `WorkflowPaused` instead, and an operator can always inspect the pause (`chowki runs show <run_id>`) or mint a fresh token (`chowki reissue-token <run_id>`) from the CLI.
 
 ### Manual Step Overrides (`release_step` & `complete_step`)
 

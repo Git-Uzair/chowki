@@ -12,18 +12,26 @@ In a `@chowki.workflow`, invoke `chowki.pause()` whenever human intervention, ap
 import chowki
 
 
+@chowki.step
 def prep_release(env: str, cfg: dict[str, str]) -> None:
-    pass
+    # State written inside a step survives the pause and is what a reviewer patches.
+    chowki.current_run().state["config"] = cfg
 
 
+@chowki.step
 def execute_deployment(env: str, cfg: dict[str, str]) -> str:
     return "deployed"
 
 
 @chowki.workflow
-def deployment_workflow(environment: str, config: dict[str, str]) -> str:
+def deployment_workflow(
+    environment: str = "staging",
+    config: dict[str, str] | None = None,
+) -> str:
+    cfg = config or {"memory_limit": "2Gi"}
+
     # Prepare release state in a step
-    prep_release(environment, config)
+    prep_release(environment, cfg)
 
     # Pause execution for human review
     chowki.pause(
@@ -32,10 +40,16 @@ def deployment_workflow(environment: str, config: dict[str, str]) -> str:
     )
 
     # Execution resumes here after APPROVE or EDIT
-    return execute_deployment(environment, config)
+    return execute_deployment(environment, cfg)
 ```
 
 Calling `chowki.pause()` suspends execution immediately and raises `WorkflowPaused`, transitioning the run status to `PAUSED`.
+
+### Every Parameter of a Pausing Workflow Needs a Default
+
+`chowki.resume()` (and `chowki.rerun()`) re-invoke the workflow function as `workflow_fn(run_id=run_id)` and pass **nothing else** — the original call arguments are not stored and not replayed. A pausing workflow whose parameters have no defaults therefore fails its own resume with `TypeError: missing 1 required positional argument`.
+
+Give every parameter of a resumable workflow a default (as `deployment_workflow` does above), or take no parameters at all and read the run's inputs from inside steps or from `current_run().state`, which *is* restored on warm resume. Parameter values a reviewer must be able to change belong in the state (patchable with an `EDIT` decision), not in the signature.
 
 ---
 
