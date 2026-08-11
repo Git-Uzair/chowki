@@ -144,3 +144,65 @@ def test_console_gateway_writes_the_token_and_actions(capsys: pytest.CaptureFixt
     assert "chowki" in out.lower()
     assert "TOKEN123" in out
     assert "APPROVE" in out and "REJECT" in out
+
+
+def test_console_gateway_cli_hint_formatting(
+    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+) -> None:
+    from pathlib import Path
+
+    from chowki.config import configure, reset_engine
+    from chowki.core.registry import clear_registry, register_workflow
+
+    # Default DB and unresolvable module -> plain chowki resume ...
+    reset_engine()
+    clear_registry()
+    gw = ConsoleGateway()
+    gw.notify(
+        PauseNotice(
+            run_id="run-def",
+            workflow="plain_wf",
+            step_id="s#0",
+            reason="test",
+            payload={},
+            permitted_actions=("APPROVE",),
+            reviewers=(),
+            token="TOK1",
+            created_at_utc="2026-08-11T00:00:00Z",
+        )
+    )
+    out = capsys.readouterr().out
+    assert "To resume via CLI: chowki resume run-def --token <above> --decision APPROVE" in out
+
+    # Non-default DB and registered module -> chowki --db <path> -m <module> resume ...
+    custom_db = Path(str(tmp_path)) / "custom_test.db"
+    configure(db_path=custom_db)
+
+    def dummy_wf() -> None:
+        pass
+
+    dummy_wf.__module__ = "my_mod.workflows"
+    register_workflow("custom_wf", dummy_wf)
+
+    gw.notify(
+        PauseNotice(
+            run_id="run-custom",
+            workflow="custom_wf",
+            step_id="s#0",
+            reason="test",
+            payload={},
+            permitted_actions=("APPROVE",),
+            reviewers=(),
+            token="TOK2",
+            created_at_utc="2026-08-11T00:00:00Z",
+        )
+    )
+    out2 = capsys.readouterr().out
+    expected_hint = (
+        f"To resume via CLI: chowki --db {custom_db} -m my_mod.workflows resume run-custom"
+        " --token <above> --decision APPROVE"
+    )
+    assert expected_hint in out2
+
+    reset_engine()
+    clear_registry()

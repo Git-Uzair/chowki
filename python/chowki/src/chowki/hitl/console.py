@@ -2,10 +2,39 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping
+from pathlib import Path
 
 from chowki.hitl.gateway import ChannelAction, GatewayHandle, PauseNotice
 from chowki.types import Decision, JSONObject
+
+
+def _get_workflow_module(workflow_name: str) -> str | None:
+    from chowki.core.registry import get_workflow
+
+    wf = get_workflow(workflow_name)
+    if wf is not None:
+        mod = getattr(wf, "__module__", None)
+        if mod and mod not in ("__main__", "builtins"):
+            return str(mod)
+    if "." in workflow_name:
+        parts = workflow_name.rsplit(".", 1)
+        if parts[0]:
+            return parts[0]
+    return None
+
+
+def _get_non_default_db_path() -> Path | None:
+    from chowki.config import get_engine
+    from chowki.storage import DEFAULT_DB_PATH
+
+    with contextlib.suppress(Exception):
+        engine = get_engine()
+        db_path = getattr(engine.config, "db_path", None)
+        if db_path is not None and Path(db_path) != DEFAULT_DB_PATH:
+            return Path(db_path)
+    return None
 
 
 class ConsoleGateway:
@@ -19,6 +48,16 @@ class ConsoleGateway:
 
     def notify(self, notice: PauseNotice) -> GatewayHandle:
         handle = GatewayHandle(channel="console", message_id=notice.run_id)
+        cli_parts = ["chowki"]
+        db_path = _get_non_default_db_path()
+        if db_path is not None:
+            cli_parts.append(f"--db {db_path}")
+        mod_name = _get_workflow_module(notice.workflow)
+        if mod_name is not None:
+            cli_parts.append(f"-m {mod_name}")
+        cli_parts.append(f"resume {notice.run_id} --token <above> --decision APPROVE")
+        cli_cmd = " ".join(cli_parts)
+
         print("=" * 60)
         print(" CHOWKI WORKFLOW PAUSED")
         print("=" * 60)
@@ -31,9 +70,7 @@ class ConsoleGateway:
         print(f"Reviewers:         {', '.join(notice.reviewers) if notice.reviewers else 'None'}")
         print(f"Resume Token:      {notice.token}")
         print("=" * 60)
-        print(
-            f"To resume via CLI: chowki resume {notice.run_id} --token <above> --decision APPROVE"
-        )
+        print(f"To resume via CLI: {cli_cmd}")
         print(
             f"To resume in Python: chowki.resume(run_id={notice.run_id!r}, token=<above>,"
             " decision=chowki.Decision.APPROVE)"

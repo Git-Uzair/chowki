@@ -8,6 +8,7 @@ import importlib
 import inspect
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -120,25 +121,25 @@ def cli_entry(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    db_path = Path(args.db)
-    resume_secret = os.environ.get("CHOWKI_RESUME_SECRET")
-    encrypt_at_rest = "CHOWKI_MASTER_KEY" in os.environ
-
-    engine = configure(
-        db_path=db_path,
-        resume_secret=resume_secret if resume_secret else None,
-        encrypt_at_rest=encrypt_at_rest,
-    )
-
-    if args.module:
-        if "" not in sys.path and "." not in sys.path:
-            sys.path.insert(0, "")
-        for mod_name in args.module:
-            importlib.import_module(mod_name)
-
     try:
+        if args.module:
+            if "" not in sys.path and "." not in sys.path:
+                sys.path.insert(0, "")
+            for mod_name in args.module:
+                importlib.import_module(mod_name)
+
+        db_path = Path(args.db)
+        resume_secret = os.environ.get("CHOWKI_RESUME_SECRET")
+        encrypt_at_rest = "CHOWKI_MASTER_KEY" in os.environ
+
+        engine = configure(
+            db_path=db_path,
+            resume_secret=resume_secret if resume_secret else None,
+            encrypt_at_rest=encrypt_at_rest,
+        )
+
         return _dispatch_command(args, engine)
-    except ChowkiError as err:
+    except (ChowkiError, ModuleNotFoundError, ImportError, sqlite3.Error, ValueError) as err:
         sys.stderr.write(f"Error: {err}\n")
         return 1
     except Exception as err:
