@@ -46,12 +46,19 @@ chowki runs list
 # Inspect full run state, history, and audit log without disturbing live state
 chowki runs show <run_id>
 
-# Resume a paused run with human approval or state patch
-chowki resume <run_id> --token <resume_token> --decision APPROVE
+# Resume a paused run with human approval or state patch (passing -m <module> to load workflow registry)
+chowki -m my_app resume <run_id> --token <resume_token> --decision APPROVE
+
+# Rerun a recovered run
+chowki -m my_app rerun <run_id>
 
 # Re-issue a lost or burnt token for a paused run
 chowki reissue-token <run_id>
 ```
+
+### 3. Next Showcase Beat: Slack Socket Mode
+
+Phase 4 opens with native Slack Socket Mode channel gateway integration, enabling human-in-the-loop approval gates directly inside Slack without requiring public webhook ingress infrastructure.
 
 ---
 

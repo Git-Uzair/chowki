@@ -262,3 +262,14 @@ def test_documented_redaction_binary_rules() -> None:
     non_utf8_bytes = b"\xff\xfe" + utf8_secret_bytes
     res_non_utf8 = redactor.redact({"payload": non_utf8_bytes})
     assert res_non_utf8["payload"] == non_utf8_bytes
+
+
+def test_launch_checklist_content() -> None:
+    """Launch checklist contains module flags on CLI resume/rerun and Slack Socket Mode note."""
+    checklist_md = USER_GUIDE_DIR / "launch-checklist.md"
+    assert checklist_md.exists()
+    content = checklist_md.read_text(encoding="utf-8")
+
+    assert "-m" in content or "--module" in content
+    assert "chowki -m" in content
+    assert "Slack Socket Mode" in content
