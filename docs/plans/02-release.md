@@ -158,9 +158,12 @@ run inspects via the engine keyring.
 ## Task 4 — CLI: `chowki` console script
 
 **Status:** COMPLETED
-**Failed Verify Cycles:** 1
+**Failed Verify Cycles:** 3
 **Attempt Ledger:**
 - attempt 1: implemented cli.py, __main__.py, test_cli.py -> FAIL (configure/imports outside try block, import order before engine build, console.py hint missing -m / --db options, test_gateway.py test missing explicit assertion)
+- attempt 2: wrapped imports and engine build in try block, imported modules before configure, updated console.py hints with -m/--db, added gateway test assertion -> FAIL (console.py called get_engine() which creates default .chowki db, and failed to get db path from active run context / explicit engine)
+- attempt 3: (opus-coder) resolved DB path from current_run().engine or active_engine() -> FAIL (unquoted paths with spaces in hint, reissue-token line missing --db/-m, __main__ module handling missing, cli.py DEFAULT_DB_PATH duplicate)
+- attempt 4: (opus-coder) constructed argv list & shell quoting (_format_command list2cmdline/shlex.join), common prefix for resume and reissue-token lines, script stem handling for __main__, imported DEFAULT_DB_PATH in cli.py, split_command helper in tests -> PASS
 
 **Goal:** the operator surface for the launch demo, zero new dependencies (argparse).
 
@@ -198,7 +201,7 @@ gateway message matches reality.
 
 ## Task 5 — Production resume guide: approvals from your own web app
 
-**Status:** PENDING
+**Status:** COMPLETED
 
 **Goal:** the "REST endpoint" story, correctly scoped: **chowki serves nothing** —
 users add a route to the app they already run and call `resume`/`aresume` in the
