@@ -370,11 +370,12 @@ new `python/chowki/tests/unit/test_package_metadata.py`.
 
 ## Task 9 — Ratify the durability decision (docs only)
 
-**Status:** PENDING
+**Status:** COMPLETED
 **Failed Verify Cycles:** 2
 **Attempt Ledger:**
 - attempt 1: updated research docs and limits.md for synchronous dispatch -> FAIL (1 MiB base snapshot disk write latency vs in-memory pipeline dispatch latency distinction in research budget tables)
 - attempt 2: updated Row 5 in 02-serialization.md and 00-synthesis.md tables and text -> FAIL (table ASCII alignment, pipeline dispatch vs delta calculation benchmark scope, total 1 MiB pipeline budget alignment, SQLite synchronous=NORMAL process death scope)
+- attempt 3 (opus-coder): rebuilt ASCII budget tables with title headers and uniform width in 02-serialization.md & 00-synthesis.md; attributed Row 5 to dispatch (sink/metrics) matching dispatch_ms; aligned TOTAL row with snapshot_total_1mb_ms = 3.5 ms gate; qualified limits.md §6 for process death / SIGKILL under PRAGMA synchronous=NORMAL; updated budgets.py docstring link -> PASS
 - attempt 3 (escalation): rebuilt both budget tables from measured numbers instead of editing prose in place — titles restored, fixed-width columns re-flowed and machine-checked, row 5 narrowed to dispatch (sink/metrics) only, TOTAL re-anchored to `snapshot_total_1mb_ms` = 3.5 ms with `delta_diff_1mb_ms` and disk flush costs called out separately, and `limits.md` §6 qualified to process-kill durability (`synchronous=NORMAL`, WAL) vs OS power loss
 
 **Goal:** close the roadmap's write-behind question with the decision: **synchronous
@@ -395,7 +396,9 @@ decision costs nothing).
 
 ## Task 10 — Launch close-out
 
-**Status:** PENDING
+**Status:** COMPLETED
+**Attempt Ledger:**
+- attempt 1: full local harness verification passed (scripts/ci_local.py), verified features.md matrix, updated roadmap.md and release.md (PyPI publish & tag push pending maintainer) -> PASS
 
 **Goal:** ship it, verified and self-erasing.
 
