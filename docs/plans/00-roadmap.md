@@ -19,7 +19,7 @@ describe how those documents were produced, not this roadmap.
 |---|---|---|
 | 0 | Repo scaffold (uv workspace, harness, CI, benchmarks) | **DONE** |
 | 1 | `chowki-py` core MVP + correctness hardening | **DONE** |
-| 2 | Python operability & the cross-SDK spec | next |
+| 2 | Python operability & the cross-SDK spec | **in progress** — plan: `docs/plans/02-operability.md` |
 | 3 | Node/TypeScript SDK (`@chowki/core`) | planned |
 | 4 | Reference HITL gateway channels (Slack, Teams, REST) | planned |
 | 5 | Scale-out storage & security (Postgres/Redis, KMS, key lifecycle) | planned |

@@ -49,3 +49,9 @@ All commands are executed from the repo root:
 ## 7. Workflow Side Effects Rule
 
 - Every side effect in a Chowki workflow must live inside a `@chowki.step`. Because `resume()` re-executes the workflow function body from the top, any side effect outside a `@chowki.step` will be re-executed on warm resume.
+
+## 8. Documentation Currency Rules
+
+- `docs/features.md` is the feature catalog and SDK parity matrix. Any task that ships or changes a feature updates its row there **in the same commit**.
+- Wire-format changes additionally update `docs/research/07-cross-sdk-parity.md` and the matching `spec/v1/` schema in the same commit.
+- Plan documents in `docs/plans/` carry `**Status:**` markers per task; flip them as tasks complete. When a phase's plan is fully COMPLETED, delete the plan file and flip the phase to DONE in `docs/plans/00-roadmap.md` (see the roadmap's Working agreement).
