@@ -17,3 +17,7 @@ Run with:
 ```bash
 uv run python examples/python/quickstart.py
 ```
+
+## Best Practices
+
+- **Workflow Side Effects Rule**: Every side effect in a Chowki workflow must live inside a `@chowki.step`. Because `resume()` re-executes the workflow function body from the top, any side effect outside a `@chowki.step` will be re-executed on warm resume.
