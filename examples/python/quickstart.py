@@ -1,17 +1,3 @@
-# chowki
-
-`chowki` is an agent-native, in-process control plane and durable execution engine designed for Python and polyglot environments. It embeds directly into existing application codebases via lightweight decorators, providing zero-infrastructure warm resume, automated secret redaction, and active guardrails.
-
-## Installation
-
-```bash
-uv add chowki
-```
-
-## Quickstart
-
-<!-- kept in sync with examples/python/quickstart.py (Task 22) -->
-```python
 """Chowki Quickstart Example: workflow pause, console output, and warm resume."""
 
 from __future__ import annotations
@@ -85,4 +71,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-```

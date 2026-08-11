@@ -34,6 +34,7 @@ class ChowkiConfig:
     gateway: ChannelGateway | None = None
     blob_threshold_bytes: int = 4096
     db_path: Path = field(default_factory=lambda: DEFAULT_DB_PATH)
+    tracing_enabled: bool = False
 
 
 class ChowkiEngine:
@@ -117,6 +118,7 @@ class ChowkiEngine:
                 keyring=use_keyring,
                 sink=self.storage.put_snapshot,
                 blob_threshold_bytes=self._config.blob_threshold_bytes,
+                tracing_enabled=self._config.tracing_enabled,
             )
         return self._pipelines[run_id]
 

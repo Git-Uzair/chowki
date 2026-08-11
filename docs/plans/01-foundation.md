@@ -5193,12 +5193,13 @@ have the function in hand.
 
 ## Task 21 — HITL gateway abstraction
 
-**Status:** IN PROGRESS (verification unavailable due to Claude Opus 5 API usage limits)
-**Failed Verify Cycles:** 2
+**Status:** COMPLETED
+**Failed Verify Cycles:** 3
 **Attempt Ledger:**
 - attempt 1: Implement Task 21 HITL gateway abstraction -> FAIL (AuditLog redacts structural run_id/hashes breaking multi-gate replay; patched_state_hash mismatch with redacted state; missing verify_ingress docstrings)
 - attempt 2: Selectively redact AuditLog payload fields while preserving system metadata; redact state before computing state_hash_after; add verify_ingress docstrings -> FAIL (state_hash_after / patched_state_hash mismatch for sensitive-key patches like /api_key; weakened test_delta.py property test)
-- attempt 3: Redact patch once before use, align json_patch and state_hash_after, preserve json_patch in AuditLog, restore test_delta.py -> Code implemented and verified locally via ci_local.py, but verifier unavailable due to API usage limits.
+- attempt 3: Redact patch once before use, align json_patch and state_hash_after, preserve json_patch in AuditLog, restore test_delta.py -> FAIL (json_patch exempted from AuditLog redaction via _SYSTEM_FIELDS, leaking cleartext secrets sk-... and /password; effective_patch in resume.py redacted values without destination key context)
+- attempt 4: Redact patch values in destination key context (`redact_patch`), remove `json_patch` from `_SYSTEM_FIELDS` in `audit.py`, restore normative `test_secrets_never_reach_the_audit_log` in `test_audit.py`, and add `test_a_low_entropy_password_edit_is_redacted_in_the_audit_log` in `test_resume.py` -> PASS
 
 **Goal:** A pluggable channel interface that Slack and Teams adapters can implement in
 the next phase without changing a line of core, plus the append-only provenance log and
@@ -5582,6 +5583,11 @@ if gateway is not None:
 ---
 
 ## Task 22 — Public API surface, telemetry, examples, and docs
+
+**Status:** COMPLETED
+**Failed Verify Cycles:** 0
+**Attempt Ledger:**
+- attempt 1: Implement public API surface (`__all__`), structured logging and OTel tracing telemetry, JSON schema for SnapshotEnvelope, quickstart example, architecture overview, and README update -> PASS
 
 **Goal:** Make `import chowki` expose exactly the documented surface, wire structured
 logging and OTel, and ship a runnable example.
