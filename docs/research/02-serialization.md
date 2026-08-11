@@ -399,23 +399,27 @@ To maintain zero noticeable impact on LLM agent loop execution times, `chowki` e
 
 #### Per-Step Snapshot Latency Budget Target (1 MB Agent State Payload)
 
-$$\text{Total Per-Step Overhead Target} \le \mathbf{2.0 \text{ ms}}$$
+$$\text{Total In-Memory Pipeline Target (1 MiB state)} \le \mathbf{3.5 \text{ ms}}$$
 
 ```
-+-----------------------------------+--------------------+-------------------------------------------------------------------+
-| Pipeline Component                | Budget Target (ms) | Tech / Implementation                                             |
-+-----------------------------------+--------------------+-------------------------------------------------------------------+
-| 1. Secret Redaction & Scanning    | < 0.8 ms           | C-compiled regex + fast Shannon entropy                           |
-| 2. Struct Encoding (MessagePack)  | < 0.3 ms           | msgspec C struct encoder                                          |
-| 3. Canonical Hashing (SHA-256)    | < 0.3 ms           | hashlib / msgspec C digest                                        |
-| 4. AES-256-GCM Encryption         | < 0.4 ms           | cryptography.hazmat C/OpenSSL (AES-NI)                            |
-| 5. Pipeline Dispatch & Delta      | < 0.2 ms           | In-memory pipeline dispatch & delta calculation (< 0.2 ms on hot path). |
-+-----------------------------------+--------------------+-------------------------------------------------------------------+
-| TOTAL STEP OVERHEAD BUDGET        | < 2.0 ms           | Synchronous in-process persistence                                |
-+-----------------------------------+--------------------+-------------------------------------------------------------------+
++--------------------------------------------------------------------------------------------------------------+
+|                                    PER-STEP SNAPSHOT LATENCY BUDGET                                          |
++-----------------------------------+--------------------+-----------------------------------------------------+
+| Pipeline Component                | Budget Target (ms) | Tech / Implementation                               |
++-----------------------------------+--------------------+-----------------------------------------------------+
+| 1. Secret Redaction & Scanning    | < 0.8 ms           | C-compiled regex + fast Shannon entropy             |
+| 2. Struct Encoding (MessagePack)  | < 0.3 ms           | msgspec C struct encoder                            |
+| 3. Canonical Hashing (SHA-256)    | < 0.3 ms           | hashlib / msgspec C digest                          |
+| 4. AES-256-GCM Encryption         | < 0.4 ms           | cryptography.hazmat C/OpenSSL (AES-NI)              |
+| 5. Dispatch (sink / metrics)      | < 0.2 ms           | Measured by dispatch_ms (65 ns without a sink)      |
++-----------------------------------+--------------------+-----------------------------------------------------+
+| TOTAL IN-MEMORY PIPELINE BUDGET   | < 3.5 ms           | snapshot_total_1mb_ms gate, 1 MiB state payload     |
++-----------------------------------+--------------------+-----------------------------------------------------+
 ```
 
-> **Amendment (2026-08-11, normative):** Synchronous persistence is the contract: state snapshots are committed to storage before `@chowki.step` returns. In-memory pipeline dispatch and delta calculation take < 0.2 ms on the hot path (as measured by `dispatch_ms`). Disk persistence commits small step deltas in < 0.05 ms, while full 1 MiB base snapshot flushes take ~3 ms depending on SQLite I/O.
+> **Amendment (2026-08-11, normative):** Synchronous persistence is the contract — a state snapshot is committed to storage before `@chowki.step` returns, so process death, SIGKILL, or an unhandled exception after a step returns loses zero committed step state.
+>
+> The table above budgets **in-memory** pipeline work only. For a 1 MiB state payload the binding end-to-end gate is `snapshot_total_1mb_ms` = 3.5 ms (5.25 ms after the 1.5 CI tolerance in `python/chowki/tests/benchmarks/budgets.py`). Row 5 covers dispatch alone — the sink/metrics fan-out measured by `dispatch_ms`, a dev-box median of 65 ns with no sink attached — and delta calculation is gated separately at `delta_diff_1mb_ms` = 1.0 ms. Disk persistence sits on top of the pipeline: the default SQLite adapter commits a small step delta in < 0.05 ms and flushes a full 1 MiB base snapshot in ~3.6 ms. The enforced 1 MiB gates also relax two component figures above for the untyped-dict path (`encode_1mb_ms` 0.6 ms, `canonical_hash_1mb_ms` 0.35 ms), so component gates no longer sum to the total.
 
 #### Storage Size Overhead Budget Target
 

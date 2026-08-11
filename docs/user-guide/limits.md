@@ -59,8 +59,9 @@ Always treat secret redaction as an additional layer of security rather than a r
 
 ## 6. Synchronous Persistence & Durability Contract
 
-- **Synchronous Persistence:** State snapshots are committed to storage before a step returns. SIGKILL after step return loses no state.
-- **Zero Loss on Acknowledged Steps:** Once `@chowki.step` finishes execution, its state snapshot and idempotency record are guaranteed durable in persistent storage.
+- **Synchronous Persistence:** State snapshots are committed synchronously before `@chowki.step` returns. Process death, SIGKILL, or an unhandled exception after a step returns loses zero committed step state.
+- **Zero Loss on Acknowledged Steps:** Once `@chowki.step` finishes execution, its state snapshot and idempotency record are already committed to storage, so a later crash resumes from them. A step whose return value the MessagePack codec cannot encode is the documented exception — it is recorded `COMPLETED` but not replayable, so its body runs again on warm resume (see [concepts.md](concepts.md)).
+- **Durability Scope:** The default SQLite storage runs WAL mode with `PRAGMA synchronous=NORMAL`, which guarantees durability against process kills. Surviving an OS crash or sudden power loss additionally depends on the operating system flushing its own disk cache, so the last commits before a power cut are not guaranteed by the default adapter.
 
 ---
 

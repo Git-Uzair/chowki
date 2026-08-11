@@ -170,23 +170,27 @@ Synthesizing empirical benchmarks from `[02-serialization.md, 03-durable-executi
 
 ### 5.1 Per-Step Snapshot Latency Budget (1 MB State Payload)
 
-$$\text{Total Per-Step Overhead Budget Target} \le \mathbf{2.0 \text{ ms}}$$
+$$\text{Total In-Memory Pipeline Budget Target (1 MiB state)} \le \mathbf{3.5 \text{ ms}}$$
 
 ```text
-+------------------------------------+------------------+-------------------------------------------------------------------+
-| Pipeline Component                 | Latency Budget   | Implementation Tech                                               |
-+------------------------------------+------------------+-------------------------------------------------------------------+
-| 1. Secret Redaction & Scanning     | < 0.8 ms         | C regex + Shannon entropy                                         |
-| 2. Struct Encoding (MessagePack)   | < 0.3 ms         | msgspec C Struct encoder                                          |
-| 3. Canonical Hashing (SHA-256)     | < 0.3 ms         | hashlib / msgspec C digest                                        |
-| 4. AES-256-GCM AEAD Encryption     | < 0.4 ms         | OpenSSL AES-NI hardware                                           |
-| 5. Pipeline Dispatch & Delta       | < 0.2 ms         | In-memory pipeline dispatch & delta calculation (< 0.2 ms on hot path). |
-+------------------------------------+------------------+-------------------------------------------------------------------+
-| TOTAL PER-STEP OVERHEAD BUDGET     | < 2.0 ms         | Embedded In-Process                                               |
-+------------------------------------+------------------+-------------------------------------------------------------------+
++-------------------------------------------------------------------------------------------------------------+
+|                                   PER-STEP SNAPSHOT OVERHEAD BUDGET                                         |
++------------------------------------+------------------+-----------------------------------------------------+
+| Pipeline Component                 | Latency Budget   | Implementation Tech                                 |
++------------------------------------+------------------+-----------------------------------------------------+
+| 1. Secret Redaction & Scanning     | < 0.8 ms         | C regex + Shannon entropy                           |
+| 2. Struct Encoding (MessagePack)   | < 0.3 ms         | msgspec C Struct encoder                            |
+| 3. Canonical Hashing (SHA-256)     | < 0.3 ms         | hashlib / msgspec C digest                          |
+| 4. AES-256-GCM AEAD Encryption     | < 0.4 ms         | OpenSSL AES-NI hardware                             |
+| 5. Dispatch (sink / metrics)       | < 0.2 ms         | Measured by dispatch_ms (65 ns without a sink)      |
++------------------------------------+------------------+-----------------------------------------------------+
+| TOTAL IN-MEMORY PIPELINE BUDGET    | < 3.5 ms         | snapshot_total_1mb_ms gate, embedded in-process     |
++------------------------------------+------------------+-----------------------------------------------------+
 ```
 
-> **Amendment (2026-08-11, normative):** Synchronous persistence is the contract: state snapshots are committed to storage before `@chowki.step` returns. In-memory pipeline dispatch and delta calculation take < 0.2 ms on the hot path (as measured by `dispatch_ms`). Disk persistence commits small step deltas in < 0.05 ms, while full 1 MiB base snapshot flushes take ~3 ms depending on SQLite I/O.
+> **Amendment (2026-08-11, normative):** Synchronous persistence is the contract — a state snapshot is committed to storage before `@chowki.step` returns, so process death, SIGKILL, or an unhandled exception after a step returns loses zero committed step state.
+>
+> The table budgets **in-memory** pipeline work only. For a 1 MiB state payload the binding end-to-end gate is `snapshot_total_1mb_ms` = 3.5 ms (5.25 ms after the 1.5 CI tolerance in `python/chowki/tests/benchmarks/budgets.py`); row 5 covers dispatch alone (sink/metrics fan-out, `dispatch_ms`, dev-box median 65 ns with no sink attached) and delta calculation is gated separately at `delta_diff_1mb_ms` = 1.0 ms. Disk persistence sits on top: the default SQLite adapter commits a small step delta in < 0.05 ms and flushes a full 1 MiB base snapshot in ~3.6 ms `[02-serialization.md §4.2]`.
 
 ### 5.2 Storage & Memory Footprint Budgets
 * **Payload Size Reduction:** $> 75\%$ size reduction compared to full JSON state dumps via MessagePack binary encoding and RFC 6902 delta persistence `[02-serialization.md]`.
