@@ -134,6 +134,9 @@ def resume(
     run = eff_engine.storage.get_run(run_id)
     if run is None or run.status is not RunStatus.PAUSED:
         raise ChowkiStateError(f"chowki run {run_id} is not paused")
+    # Captured before the pause is cleared below: a gate re-applies the human patch
+    # when the replay falls through it, an auto-pause has no gate in the body.
+    pause_origin = run.pause.origin if run.pause is not None else "gate"
 
     if token_exc is not None:
         raise token_exc
@@ -238,11 +241,14 @@ def resume(
     if state_hash_after != state_hash_before:
         _persist_state_of_record(eff_engine, run, state)
 
-    # The re-execution is seeded with the state the human reviewed, not the patched one:
-    # `pause()` applies the patch when it falls through this gate, which is the point in
-    # the body where the human's decision belongs. Seeding the patched state instead
-    # would apply the edit twice for any key the replay does not rewrite.
-    eff_engine.pending_resume_state[run_id] = (claims.step_id, reviewed)
+    # A gate pause is seeded with the state the human reviewed, not the patched one:
+    # `pause()` applies the patch when it falls through the gate, which is the point in
+    # the body where the human's decision belongs, and seeding the patched state would
+    # apply the edit twice for any key the replay does not rewrite. An auto-pause has
+    # no gate anywhere in the body -- nothing would ever apply the patch -- so the
+    # decided (patched, redacted) state seeds the replay directly.
+    seed = reviewed if pause_origin == "gate" else state
+    eff_engine.pending_resume_state[run_id] = (claims.step_id, seed)
 
     val = _invoke_workflow(workflow_fn, run_id)
 

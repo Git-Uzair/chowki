@@ -132,6 +132,11 @@ class PauseRequest(msgspec.Struct, kw_only=True, frozen=True):
     reviewers: tuple[str, ...] = ()
     channel: str = "console"
     created_at_utc: str = ""
+    #: "gate" for a chowki.pause() call in the body; "auto" for a guardrail/breaker
+    #: suspension. Appended with a default so pre-existing stored records decode.
+    #: resume() reads it: a gate re-applies the human patch when the replay falls
+    #: through it, an auto-pause has no gate so the patched state seeds the replay.
+    origin: str = "gate"
 
 
 class RunRecord(msgspec.Struct, kw_only=True):
