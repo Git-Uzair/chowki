@@ -145,7 +145,7 @@ matrix in sync.
 | Engine + config | Storage/tenant/encryption/keyring/redaction-key/resume-secret/guardrails/gateway/blob-threshold/db-path/tracing; process-global `configure()`/`get_engine()`/`reset_engine()`; per-run pipeline memo dropped on terminal states. | source: `chowki/config.py` | ✅ | ⬜ |
 | Public API surface | `step, workflow, pause, resume, aresume, rerun, inspect_run, configure, current_run, report_usage, record_text, record_transition, recover_runs, resumable_runs, reissue_token, release_step, complete_step` + types/errors. Pinned by a test. | `chowki/__init__.py` | ✅ | ⬜ |
 | Workflow registry + resume-by-name | See §1. | 02-release T1 | ✅ | ⬜ |
-| CLI | `runs list/show`, `resume` (sync + async), `reissue-token`, `release-step`, `complete-step`, `recover`, `rerun`. | 02-release T4 | 🔜 2 | ⬜ |
+| CLI | `runs list/show`, `resume` (sync + async), `reissue-token`, `release-step`, `complete-step`, `recover`, `rerun`. | 02-release T4 | ✅ | ⬜ |
 | Inspection API | `inspect_run(run_id)`: record, steps, latest redacted state, audit — without touching live pipeline state. | 02-release T3 | ✅ | ⬜ |
 | Embedded approval endpoints | Bring-your-own web app: documented FastAPI/Flask handlers calling `resume`/`aresume`, normative exception → HTTP mapping, background-execution pattern. chowki serves nothing; the token is the credential. | 02-release T5 | 🔜 2 | ⬜ |
 | User guide + flagship example + packaging | `docs/user-guide/`, the showcase agent (budget pause, approval gate, kill → `rerun`), CHANGELOG, PyPI release. | 02-release T6–T8 | 🔜 2 | — |
