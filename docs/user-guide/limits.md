@@ -25,8 +25,8 @@ By default, `chowki` uses SQLite with Write-Ahead Logging (WAL) enabled:
 ## 3. Secret Redaction Non-UTF-8 Exemption
 
 `chowki`'s automatic secret redactor inspects string values and text fields in state payloads for known secret patterns (API keys, tokens, passwords):
-- **Text-Only Redaction:** Redaction scans UTF-8 string values.
-- **Binary Payloads Exempt:** Non-text binary payloads (`bytes`, bytearrays, pickled blobs, raw images) are exempt from regex redaction scanning to avoid corrupting binary data structure.
+- **Text & UTF-8 Bytes Redaction:** Redaction scans UTF-8 string values as well as `bytes` and `bytearray` values that decode cleanly as UTF-8.
+- **Non-UTF-8 Binary Payloads Exempt:** Non-UTF-8 binary payloads (bytes sequences that fail UTF-8 decoding, such as compressed archives or raw binary blobs) are exempt from regex redaction scanning to avoid corrupting binary data structure.
 
 ---
 
@@ -45,7 +45,7 @@ When computing step idempotency keys, `chowki` hashes step input arguments using
 Redaction in `chowki` provides **defense in depth**, not an absolute security guarantee:
 
 ### What Redaction Guarantees
-- Detects and replaces exact matches of configured secret strings (`CHOWKI_MASTER_KEY`, API tokens, explicit secret rules) with deterministic HMAC placeholders before writing state to disk.
+- Detects and replaces secrets using a multi-tiered strategy: sensitive key name matching (`api_key`, `secret`, `token`, `password`), pattern regex matching for known provider keys (OpenAI, Anthropic, GitHub, AWS, Slack, RSA/SSH keys), and high Shannon entropy text scanning.
 - Prevents plaintext API keys from leaking into SQLite database files or state snapshot deltas.
 
 ### What Redaction Does NOT Guarantee
@@ -61,4 +61,4 @@ Always treat secret redaction as an additional layer of security rather than a r
 
 1. **Running `asyncio.gather()` Over Steps:** Wrapping `@chowki.step` functions in `asyncio.gather()` causes state delta corruption or race conditions. Run steps sequentially within a workflow, or run independent workflows concurrently.
 2. **Passing Un-serializable Step Arguments:** Depending on `<TypeName>` argument hash collapse for custom object instances can cause step cache collisions if argument values differ but their class names match.
-3. **Assuming Redaction Obfuscates Binary Blobs:** Passing API keys inside raw `bytes` objects bypasses UTF-8 string redaction.
+3. **Assuming Redaction Obfuscates Non-UTF-8 Binary Blobs:** Passing API keys inside raw non-UTF-8 binary bytes objects (that fail UTF-8 decoding) bypasses regex redaction scanning.

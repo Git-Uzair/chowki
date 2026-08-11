@@ -250,13 +250,13 @@ linked from `docs/features.md` (new "Embedded approval endpoints" row → ✅).
 
 ## Task 6 — User guide
 
-**Status:** PENDING
+**Status:** COMPLETED
 **Failed Verify Cycles:** 3
 **Attempt Ledger:**
 - attempt 1: implemented user guide pages -> FAIL (API signature mismatches in docs: pause reason positional vs kwarg, recover_runs engine param, db_path default, step identity per-name counter, args_hash collapse, ConsoleGateway & retry matrix details)
-- attempt 2: corrected pause(reason=...), recover_runs(engine), step identity per-name counter, args_hash collapse, db_path CWD relative default, ConsoleGateway section, CLI -m/--db examples, retry matrix section -> FAIL (get_engine import path, retry_max_seconds default value 30.0, rerun behavior, recover_runs non-terminal run list behavior, tenant_id AAD detail, pause token HMAC statelessness detail)
+- attempt 2: corrected pause(reason=...), recover_runs(engine), step identity per-name counter, args_hash collapse, db_path CWD relative default, ConsoleGateway section, CLI -m/--db examples, retry matrix section -> FAIL (get_engine import path, retry_max_seconds default value 30.0, rerun behavior, recover_runs non-terminal run behavior, tenant_id AAD detail, pause token HMAC statelessness detail)
 - attempt 3 (escalated): closed the *class* of failure instead of the instances — test_user_guide.py now resolves every documented `chowki.<name>` / `from chowki... import` against the package and compares every quoted default against `ChowkiConfig`/`GuardrailConfig`; then fixed get_engine import, retry_max_seconds/full-jitter formula, rerun and recover_runs semantics, tenant_id (AAD, no query filtering), stateless HMAC tokens with consumed nonces, plus source-checked corrections to ABORTED/FAILED, loop tiers, budget ceiling and unserializable-result behavior -> FAIL (workflow parameters in examples need default values for resume fn(run_id=...), tenant_id AAD tampering explanation, auto-pause gateway=None behavior, duplicate line in plan)
-- attempt 4 (escalated): machine-checked the two remaining *behavioral* claims instead of rewording them — test_user_guide.py rejects any documented `@chowki.workflow` with a parameter that has no default (resume calls `fn(run_id=run_id)`), and test_auto_pause.py pins that `gateway=None` still yields a PAUSED run with a token; then defaulted every documented workflow parameter, added the "resumable workflows take no required arguments" notes to warm-resume.md and hitl.md, corrected the ABORT/auto-pause-without-gateway text, rewrote tenant AAD tampering and per-tenant `db_path` isolation in configuration.md, and de-duplicated the Task 5/Task 6 ledgers
+- attempt 4 (escalated): machine-checked the two remaining *behavioral* claims instead of rewording them — test_user_guide.py rejects any documented `@chowki.workflow` with a parameter that has no default (resume calls `fn(run_id=run_id)`), and test_auto_pause.py pins that `gateway=None` still yields a PAUSED run with a token; then defaulted every documented workflow parameter, added the "resumable workflows take no required arguments" notes to warm-resume.md and hitl.md, corrected the ABORT/auto-pause-without-gateway text, rewrote tenant AAD tampering and per-tenant `db_path` isolation in configuration.md, and de-duplicated the Task 5/Task 6 ledgers -> PASS
 
 **Goal:** the documentation a first-hour evaluator needs; currently none exists.
 Every page ends with "what can go wrong" — honesty is positioning.
@@ -297,7 +297,7 @@ without reading source.
 
 ## Task 7 — Flagship example: the showcase agent
 
-**Status:** PENDING
+**Status:** COMPLETED
 
 **Goal:** the launch demo as runnable code: an LLM tool-use agent with a budget
 auto-pause, an approval gate before a dangerous tool, and the kill-mid-run → `rerun`

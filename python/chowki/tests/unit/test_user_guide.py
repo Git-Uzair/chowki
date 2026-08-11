@@ -33,22 +33,17 @@ def test_user_guide_pages_exist() -> None:
 
 
 def test_python_code_blocks_parse() -> None:
-    md_files = list(USER_GUIDE_DIR.glob("**/*.md"))
-    assert len(md_files) > 0, "No markdown files found in user guide directory"
+    blocks = _python_blocks()
+    assert len(blocks) > 0, "No markdown files found or no code blocks in user guide"
 
-    python_block_re = re.compile(r"```python\s*(.*?)\s*```", re.DOTALL)
-
-    for md_file in md_files:
-        content = md_file.read_text(encoding="utf-8")
-        blocks = python_block_re.findall(content)
-        for i, code in enumerate(blocks):
-            try:
-                ast.parse(code)
-            except SyntaxError as err:
-                pytest.fail(
-                    f"Syntax error in {md_file.relative_to(REPO_ROOT)} python block {i + 1}:\n"
-                    f"{err}\nCode:\n{code}"
-                )
+    for md_file, code in blocks:
+        try:
+            ast.parse(code)
+        except SyntaxError as err:
+            pytest.fail(
+                f"Syntax error in {md_file.relative_to(REPO_ROOT)} python block:\n"
+                f"{err}\nCode:\n{code}"
+            )
 
 
 def test_intra_repo_links_resolve() -> None:
@@ -248,3 +243,21 @@ def test_documented_defaults_match_config_dataclasses() -> None:
                 f"{md_file.name} documents {field_name} as {value!r}, "
                 f"but the default is {expected!r}."
             )
+
+
+def test_documented_redaction_binary_rules() -> None:
+    """UTF-8 decodable bytes secrets are redacted; non-UTF-8 binary bytes pass through."""
+    from chowki.state.redact import Redactor
+
+    redactor = Redactor(hmac_key=b"k" * 32)
+
+    # 1. UTF-8 decodable bytes containing secret gets redacted under non-sensitive key
+    utf8_secret_bytes = b"sk-" + b"A1b2C3d4E5f6G7h8I9j0" * 2
+    res_utf8 = redactor.redact({"payload": utf8_secret_bytes})
+    assert isinstance(res_utf8["payload"], bytes)
+    assert b"[REDACTED:" in res_utf8["payload"]
+
+    # 2. Non-UTF-8 binary bytes passes through untouched
+    non_utf8_bytes = b"\xff\xfe" + utf8_secret_bytes
+    res_non_utf8 = redactor.redact({"payload": non_utf8_bytes})
+    assert res_non_utf8["payload"] == non_utf8_bytes
