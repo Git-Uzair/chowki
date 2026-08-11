@@ -113,6 +113,10 @@ class SQLiteStorage:
         path_obj = Path(path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
 
+        #: The file this adapter is bound to. Public because callers that must name the
+        #: database on a command line (the CLI `--db` hint) need the file actually in
+        #: use, which is not derivable from a config when the adapter was passed in.
+        self.db_path: Path = path_obj
         self._lock = threading.Lock()
         self._conn: sqlite3.Connection | None = sqlite3.connect(
             str(path_obj),
