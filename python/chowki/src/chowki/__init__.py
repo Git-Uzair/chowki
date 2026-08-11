@@ -31,6 +31,24 @@ def report_usage(usage: Usage | int) -> None:
     ctx.budget.add(u)
 
 
+def record_text(text: str) -> None:
+    """Feed prompt or response text to the current run's semantic loop tier.
+
+    Near-duplicate consecutive texts (normalized Levenshtein similarity over the
+    configured thresholds) warn and then raise InfiniteLoopDetected (ADR-005 tier 2).
+    """
+    current_run().loops.record_text(text)
+
+
+def record_transition(src: str, dst: str) -> None:
+    """Record an agent delegation edge for the current run's graph cycle tier.
+
+    Edges seen at least twice form the graph; a cycle in it raises
+    InfiniteLoopDetected (ADR-005 tier 3).
+    """
+    current_run().loops.record_transition(src, dst)
+
+
 __all__ = [
     "BudgetExceeded",
     "ChowkiConfig",
@@ -49,6 +67,8 @@ __all__ = [
     "configure",
     "current_run",
     "pause",
+    "record_text",
+    "record_transition",
     "recover_runs",
     "reissue_token",
     "release_step",

@@ -123,3 +123,52 @@ def test_cycle_detection_large_acyclic_chain() -> None:
         src, dst = f"node_{i}", f"node_{i + 1}"
         d.record_transition(src, dst)
         d.record_transition(src, dst)
+
+
+def test_public_record_text_feeds_the_semantic_tier_of_the_current_run() -> None:
+    """chowki.record_text is the supported way for applications to feed prompts to
+    tier 2 without reaching into run internals. Caught inside the body so the
+    workflow itself completes."""
+    import chowki
+    from chowki.config import ChowkiConfig, ChowkiEngine
+    from chowki.storage.memory import MemoryStorage
+
+    engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), resume_secret=b"s" * 32))
+
+    @chowki.workflow(engine=engine)
+    def chatty() -> str:
+        with pytest.raises(InfiniteLoopDetected, match="similarity"):
+            for _ in range(5):
+                chowki.record_text("please try the exact same thing again " * 3)
+        return "caught"
+
+    assert chatty(run_id="lt") == "caught"
+    engine.close()
+
+
+def test_public_record_transition_feeds_the_graph_tier_of_the_current_run() -> None:
+    import chowki
+    from chowki.config import ChowkiConfig, ChowkiEngine
+    from chowki.storage.memory import MemoryStorage
+
+    engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage(), resume_secret=b"s" * 32))
+
+    @chowki.workflow(engine=engine)
+    def delegating() -> str:
+        with pytest.raises(InfiniteLoopDetected, match="cycle"):
+            for _ in range(3):
+                chowki.record_transition("planner", "researcher")
+                chowki.record_transition("researcher", "planner")
+        return "caught"
+
+    assert delegating(run_id="lg") == "caught"
+    engine.close()
+
+
+def test_public_loop_helpers_require_an_active_run() -> None:
+    import chowki
+
+    with pytest.raises(LookupError):
+        chowki.record_text("outside any run")
+    with pytest.raises(LookupError):
+        chowki.record_transition("a", "b")

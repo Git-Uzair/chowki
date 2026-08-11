@@ -30,6 +30,8 @@ def test_public_surface_is_exactly_as_documented() -> None:
         "configure",
         "current_run",
         "pause",
+        "record_text",
+        "record_transition",
         "recover_runs",
         "reissue_token",
         "release_step",
