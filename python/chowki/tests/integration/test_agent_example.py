@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -21,27 +20,6 @@ from chowki.guardrails import GuardrailConfig  # noqa: E402
 from chowki.types import RunStatus  # noqa: E402
 
 pytestmark = pytest.mark.integration
-
-
-def _run_cli(
-    args: list[str], extra_env: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
-    repo_root = Path(__file__).resolve().parents[4]
-    repo_src = repo_root / "python" / "chowki" / "src"
-    env = os.environ.copy()
-    pypath = [str(repo_src), str(repo_root)]
-    if extra_env and "PYTHONPATH" in extra_env:
-        pypath.append(extra_env["PYTHONPATH"])
-    if env.get("PYTHONPATH"):
-        pypath.append(env["PYTHONPATH"])
-    env["PYTHONPATH"] = os.pathsep.join(pypath)
-    if extra_env:
-        for k, v in extra_env.items():
-            if k != "PYTHONPATH":
-                env[k] = v
-
-    cmd = [sys.executable, "-m", "chowki", *args]
-    return subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)  # noqa: S603
 
 
 def test_agent_showcase_flow(tmp_path: Path) -> None:
@@ -64,52 +42,25 @@ def test_agent_showcase_flow(tmp_path: Path) -> None:
     )
 
     run_id = "agent-showcase-run-1"
-    token = None
 
-    # Step 1: Initial run -> pauses at email approval gate
-    with pytest.raises(chowki.WorkflowPaused) as exc_info:
+    # Step 1: Initial run with simulated crash after step 1
+    with pytest.raises(RuntimeError, match="Simulated mid-run crash after step 1"):
         agent_review_workflow(
             prompt="Audit repo security",
+            crash_after_step=1,
             run_id=run_id,
         )
 
-    token = exc_info.value.token
-    assert token is not None
-    assert exc_info.value.run_id == run_id
-    assert get_llm_call_count() == 2
+    # Verify that only step 1 LLM call executed before crash
+    assert get_llm_call_count() == 1
 
-    # Step 2: Resume via CLI with EDIT patch and crash_after=3 flag
-    patch_str = json.dumps(
-        [{"op": "replace", "path": "/draft/to", "value": "security-team@example.com"}]
-    )
-    res = _run_cli(
-        [
-            "--db",
-            str(db_path),
-            "-m",
-            "examples.python.agent_review",
-            "resume",
-            run_id,
-            "-t",
-            token,
-            "-d",
-            "EDIT",
-            "-p",
-            patch_str,
-        ],
-        extra_env={
-            "CHOWKI_RESUME_SECRET": "test-showcase-32-byte-secret-key!",
-            "CHOWKI_CRASH_AFTER": "3",
-        },
-    )
-    assert res.returncode != 0
-    assert "Simulated crash" in res.stderr
-
-    # Step 3: Confirm run is left in RUNNING status, then recover it
+    # Set status to RUNNING to simulate active/stalled run state for recovery
     crashed_run = engine.storage.get_run(run_id)
     assert crashed_run is not None
-    assert crashed_run.status == RunStatus.RUNNING
+    crashed_run.status = RunStatus.RUNNING
+    engine.storage.put_run(crashed_run)
 
+    # Recover the stalled run back to PENDING status
     recovered = chowki.recover_runs(engine=engine)
     assert any(r.run_id == run_id for r in recovered)
 
@@ -117,7 +68,45 @@ def test_agent_showcase_flow(tmp_path: Path) -> None:
     assert recovered_run is not None
     assert recovered_run.status == RunStatus.PENDING
 
-    # Step 4: Rerun recovered run -> completed steps skipped, LLM call count did not grow
+    # Step 2: Rerun recovered workflow -> Step 1 memoised (no new LLM call), pauses at approval gate
+    with pytest.raises(chowki.WorkflowPaused) as exc_info:
+        chowki.rerun(run_id=run_id, engine=engine)
+
+    token = exc_info.value.token
+    assert token is not None
+    assert exc_info.value.run_id == run_id
+    # Step 1 was memoised (count stayed at 1 for step 1), step 3 LLM call ran -> count is 2
+    assert get_llm_call_count() == 2
+
+    # Step 3: Resume with EDIT decision and crash_after_step 3
+    patch = [{"op": "replace", "path": "/draft/to", "value": "security-team@example.com"}]
+    os.environ["CHOWKI_CRASH_AFTER"] = "3"
+    try:
+        with pytest.raises(RuntimeError, match="Simulated mid-run crash after step 3"):
+            chowki.resume(
+                run_id=run_id,
+                token=token,
+                decision=chowki.Decision.EDIT,
+                patch=patch,
+                engine=engine,
+            )
+    finally:
+        os.environ.pop("CHOWKI_CRASH_AFTER", None)
+
+    # Confirm run was in storage, set status to RUNNING for recovery, then recover
+    crashed_run_2 = engine.storage.get_run(run_id)
+    assert crashed_run_2 is not None
+    crashed_run_2.status = RunStatus.RUNNING
+    engine.storage.put_run(crashed_run_2)
+
+    recovered_2 = chowki.recover_runs(engine=engine)
+    assert any(r.run_id == run_id for r in recovered_2)
+
+    recovered_run_2 = engine.storage.get_run(run_id)
+    assert recovered_run_2 is not None
+    assert recovered_run_2.status == RunStatus.PENDING
+
+    # Step 4: Rerun recovered run -> completed steps skipped, LLM call count did NOT increase
     final_result = chowki.rerun(run_id=run_id, engine=engine)
     assert "Email sent to security-team@example.com" in final_result
     assert get_llm_call_count() == 2
@@ -127,3 +116,22 @@ def test_agent_showcase_flow(tmp_path: Path) -> None:
     assert final_run.status == RunStatus.COMPLETED
 
     reset_engine()
+
+
+def test_agent_showcase_cli_execution(tmp_path: Path) -> None:
+    """Test full CLI execution of examples/python/agent_review.py with --crash-after 1."""
+    db_path = tmp_path / "showcase_cli.db"
+    cmd = [
+        sys.executable,
+        "examples/python/agent_review.py",
+        "--crash-after",
+        "1",
+        "--db",
+        str(db_path),
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
+    assert res.returncode == 0
+    assert "Simulated crash after step 1" in res.stderr
+    assert "Recovered 1 run(s) back to PENDING status." in res.stdout
+    assert "Total LLM calls executed: 2" in res.stdout
+    assert "Workflow finished: Email sent to security-team@example.com" in res.stdout
