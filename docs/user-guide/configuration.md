@@ -8,9 +8,9 @@
 
 | Field Name | Type | Default | Description |
 |---|---|---|---|
-| `db_path` | `Path` | `~/.chowki/chowki.db` | Local SQLite database file path. Created automatically if missing. |
-| `tenant_id` | `str` | `"default"` | Tenant identifier used for multi-tenant state isolation and AES-GCM Associated Authenticated Data (AAD) binding. |
-| `resume_secret` | `bytes \| str \| None` | `None` | HMAC secret key used to sign and verify single-use pause tokens. |
+| `db_path` | `Path` | `./.chowki/chowki.db` | Local SQLite database file path relative to CWD. Created automatically if missing. |
+| `tenant_id` | `str` | `"default"` | Tenant identifier recorded on every `RunRecord` and bound into AES-GCM state encryption as Associated Authenticated Data (AAD). |
+| `resume_secret` | `bytes \| str \| None` | `None` | HMAC secret key used to sign and verify pause tokens. Configured via `ChowkiConfig(resume_secret=...)` in Python or `CHOWKI_RESUME_SECRET` in CLI. |
 | `encrypt_at_rest` | `bool` | `False` | Master switch for AES-256-GCM envelope state encryption at rest. Requires `CHOWKI_MASTER_KEY` environment variable or `keyring`. |
 | `keyring` | `KeyRing \| None` | `None` | Custom cryptographic key management ring. |
 | `redaction_hmac_key` | `bytes \| None` | `None` | HMAC key for deterministic secret placeholder hashing. If omitted, initialized automatically from persistent storage. |
@@ -73,9 +73,10 @@ State envelopes are encrypted with AES-256-GCM. The AEAD Associated Authenticate
 
 ## Tenant Isolation (`tenant_id`)
 
-In multi-tenant SaaS applications, pass `tenant_id` to `chowki.configure()` or specify it per engine:
-- Storage queries automatically filter run records by `tenant_id`.
-- AEAD encryption binds the ciphertext to the `tenant_id`.
+In multi-tenant applications, pass `tenant_id` to `chowki.configure()` or specify it per engine:
+- **Run Metadata:** `tenant_id` is recorded on every `RunRecord` written to the database (`RunRecord.tenant_id`).
+- **Cryptographic Binding:** When encryption at rest is enabled, the snapshot AAD is `f"{tenant_id}:{run_id}:v{schema_version}"`, so a snapshot written under one tenant cannot be decrypted as another tenant's — a wrong tenant ID fails authentication with `DecryptionError`.
+- **No Query Filtering:** `chowki` does **not** filter reads by tenant. `list_runs()` (and therefore `resumable_runs()`, `recover_runs()` and the CLI's `runs list`) returns every run in the database regardless of `tenant_id`; the only filter it accepts is `status`. Give each tenant its own `db_path`, or filter on `RunRecord.tenant_id` in your own code, if a process must not see another tenant's runs.
 
 ---
 

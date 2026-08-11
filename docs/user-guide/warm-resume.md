@@ -38,7 +38,7 @@ def bad_workflow(user_id: str) -> None:
     send_welcome_email(user_id)
 
     # Pauses here
-    chowki.pause("Await confirmation")
+    chowki.pause(reason="Await confirmation")
 ```
 
 ### Good Example (Compliant with R4)
@@ -64,24 +64,22 @@ def good_workflow(user_id: str) -> None:
     deliver_welcome_email(user_id)
 
     # Pauses here
-    chowki.pause("Await confirmation")
+    chowki.pause(reason="Await confirmation")
 ```
 
 ---
 
 ## Step Identity & Rename/Reorder Hazards
 
-A step's identity key is computed from:
-- Workflow function name
-- Step function name
-- Step ordinal index (1st step, 2nd step, etc.)
-- Deterministic hash of step arguments
+A step's identity (`step_id`) is computed using a per-step-name occurrence counter within the run:
+- Format: `f"{step_name}#{n}"` where `step_name` is the function name (or custom `name`) and `n` is a zero-indexed occurrence counter for that step name within the run (e.g. `process_data#0`, `process_data#1`). Note that step identity uses a per-step-name counter rather than a global ordinal across all steps.
+- The step identity is combined with a deterministic argument hash (`args_hash`) to form the idempotency key.
 
 ### Hazard: Renaming or Reordering Steps
 
 If you modify workflow code while a run is paused or pending:
-- **Renaming a step function:** The new name will produce a different idempotency key. `chowki` will treat it as an unexecuted step and re-run it.
-- **Reordering steps:** Changing the sequence of step calls changes step ordinals, invalidating matching cached step records downstream.
+- **Renaming a step function:** The new step name produces a different step ID (`new_name#0` instead of `old_name#0`). `chowki` will treat it as an unexecuted step and re-run it.
+- **Reordering occurrences of the same step:** Changing the relative order of repeated calls to the same step function changes occurrence indices `n`, invalidating matching cached step records downstream.
 
 To safely deploy code changes to active runs, deploy non-breaking additions or wait for pending runs to complete.
 
@@ -93,19 +91,27 @@ If a process dies mid-execution (SIGKILL, host crash, unhandled error outside st
 
 ### Step 1: Detect and Recover Stalled Runs
 
-Call `recover_runs()` (or run `chowki recover` in CLI) to reset stalled `RUNNING` runs back to `PENDING`:
+Call `recover_runs(engine)` (or run `chowki recover` in CLI) on process start. It resets every `RUNNING` run to `PENDING` and returns **all non-terminal runs** — `PENDING`, the ones it just reset, and `PAUSED`:
 
 ```python
 import chowki
+from chowki.config import get_engine
+from chowki.types import RunStatus
 
-# Reclaims stalled runs across all tenant processes
-recovered_count = chowki.recover_runs()
-print(f"Recovered {recovered_count} stalled runs")
+engine = get_engine()
+# Every non-terminal run: PENDING (including RUNNING ones just reset) and PAUSED
+incomplete_runs = chowki.recover_runs(engine)
+print(f"{len(incomplete_runs)} incomplete runs in storage")
+
+# PAUSED runs wait for a human decision (resume with a token); the rest can be re-driven.
+to_rerun = [run for run in incomplete_runs if run.status is not RunStatus.PAUSED]
 ```
+
+`recover_runs` makes no liveness check: it cannot tell a crashed process's run from one a live worker is executing right now. Run it while no worker is executing runs against that database — on process start, before the fleet resumes work.
 
 ### Step 2: Rerun Recovered Workflows
 
-Call `rerun()` (or run `chowki rerun <run_id>` in CLI) to re-trigger execution from line 1. All previously completed steps will be skipped automatically:
+Call `rerun()` (or run `chowki rerun <run_id>` in CLI) to re-execute the workflow from line 1. All previously completed steps are skipped automatically, and `ChowkiStateError` is raised only when no run with that ID exists in storage:
 
 ```python
 import chowki
@@ -116,14 +122,28 @@ result = chowki.rerun("run-uuid-123")
 
 ---
 
-## Step Override & Recovery Matrix (`release_step` & `complete_step`)
+## Step Failures, Retries & Operator Overrides
 
-When a step fails or gets stuck in a retry loop, `chowki` allows explicit administrative interventions:
+### Failed-Step Retry Matrix & Exponential Backoff
+
+When a step fails with a transient or retryable exception (such as rate limits or tool execution errors), `chowki` handles automatic retries before requiring manual operator intervention:
+
+- **Automatic Retries:** `chowki` automatically retries failed steps up to `max_auto_retries = 3` times (the default). This limit can be customized per step via `@chowki.step(retries=N)` or globally in `GuardrailConfig.max_auto_retries`.
+- **Exponential Backoff:** Each retry sleeps for a full-jitter delay — a uniform random value between `0` and `min(retry_base_seconds * (2 ** attempt), retry_max_seconds)` (defaults: `retry_base_seconds = 1.0`, `retry_max_seconds = 30.0`).
+- **Breaker Actions:** If `max_auto_retries` attempts are exhausted or a non-retryable exception occurs, the anomaly breaker decides what happens to the run:
+  - `PAUSE` — the run auto-pauses (`PAUSED`), freezing state and minting a resume token so an operator can intervene, and `WorkflowPaused` is raised from the original error.
+  - `ABORT` — the original exception propagates out of the workflow and the run is recorded `FAILED`. A breaker that wanted to pause aborts instead when no HITL gateway is available.
+
+### Manual Step Overrides (`release_step` & `complete_step`)
+
+When a step fails permanently or is refused by guardrails/policy, an operator can manually override or release the step claim using administrative escape hatches:
 
 | Operation | Python API | CLI Command | Purpose |
 |---|---|---|---|
-| **Release Claim** | `chowki.release_step(run_id, step_id)` | `chowki release-step <run_id> <step_id>` | Clears the step's idempotency claim, forcing `chowki` to re-execute the step function on the next run attempt. |
-| **Force Complete** | `chowki.complete_step(run_id, step_id, result)` | `chowki complete-step <run_id> <step_id> -r '{"status": "ok"}'` | Injects a manual result payload and marks the step `COMPLETED`, allowing the workflow to bypass a failing step on resume. |
+| **Release Claim** | `chowki.release_step(run_id, step_id)` | `chowki release-step <run_id> <step_id>` | Clears the step's idempotency claim without setting a result. Use when the side effect did NOT happen; the next workflow execution re-attempts the step function body. |
+| **Force Complete** | `chowki.complete_step(run_id, step_id, result)` | `chowki complete-step <run_id> <step_id> -r '{"status": "ok"}'` | Records the step as `COMPLETED` with an operator-supplied result. On warm resume, `chowki` replays this result and skips the failed/refused step. |
+
+Both operate on an attempt the run already recorded: if no step record exists for `step_id`, they raise `ChowkiStateError`. A force-completed result is only replayed when the step is reached with the same arguments — a different `args_hash` re-runs the body.
 
 ```python
 import chowki
@@ -131,11 +151,11 @@ import chowki
 # Force-complete a failing payment step with a manual transaction ref
 chowki.complete_step(
     run_id="run-uuid-123",
-    step_id="step-charge-456",
+    step_id="charge_payment#0",
     result={"transaction_id": "manual-override-789", "status": "settled"},
 )
 
-# Resume the workflow
+# Resume the workflow -- charge_payment#0 now replays the operator result
 chowki.rerun("run-uuid-123")
 ```
 
@@ -145,4 +165,4 @@ chowki.rerun("run-uuid-123")
 
 1. **Violating Rule R4:** Placing network calls, file writes, or API calls outside `@chowki.step` causes duplicate execution on every resume.
 2. **Code Deployment Drift During Active Pauses:** Modifying step function names or ordering while runs are paused in `PAUSED` status can cause cache misses during warm resume.
-3. **Un-recovered Stalled Runs:** Invoking `rerun()` on a run still marked `RUNNING` (because a dead process never updated its status) will raise `ChowkiStateError`. Always call `recover_runs()` first after process crashes.
+3. **Un-recovered Stalled Runs:** `rerun()` does not refuse a run still marked `RUNNING` — it re-executes it immediately, so calling it while the original process is in fact alive runs the same workflow twice. `rerun()` raises `ChowkiStateError` only when the run ID is unknown to storage. Recover on process start (`recover_runs(engine)` / `chowki recover`) rather than rerunning `RUNNING` runs against a live fleet.
