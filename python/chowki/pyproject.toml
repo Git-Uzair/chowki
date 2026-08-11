@@ -27,6 +27,9 @@ dependencies = [
 [project.optional-dependencies]
 otel = ["opentelemetry-sdk>=1.27.0"]
 
+[project.scripts]
+chowki = "chowki.cli:main"
+
 [build-system]
 requires = ["hatchling>=1.25.0", "hatch-vcs>=0.4.0"]
 build-backend = "hatchling.build"

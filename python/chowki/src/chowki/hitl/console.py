@@ -32,10 +32,13 @@ class ConsoleGateway:
         print(f"Resume Token:      {notice.token}")
         print("=" * 60)
         print(
-            f"To resume: chowki.resume(run_id={notice.run_id!r}, token=<above>,"
+            f"To resume via CLI: chowki resume {notice.run_id} --token <above> --decision APPROVE"
+        )
+        print(
+            f"To resume in Python: chowki.resume(run_id={notice.run_id!r}, token=<above>,"
             " decision=chowki.Decision.APPROVE)"
         )
-        print("Lost the token later? chowki.reissue_token(run_id) mints a new one.")
+        print(f"Lost the token? chowki reissue-token {notice.run_id}")
         print("=" * 60)
         return handle
 

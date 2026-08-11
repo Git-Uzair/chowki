@@ -157,7 +157,7 @@ run inspects via the engine keyring.
 
 ## Task 4 — CLI: `chowki` console script
 
-**Status:** PENDING
+**Status:** COMPLETED
 
 **Goal:** the operator surface for the launch demo, zero new dependencies (argparse).
 
