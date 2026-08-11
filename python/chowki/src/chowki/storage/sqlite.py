@@ -1,3 +1,15 @@
+"""Embedded SQLite storage adapter implementation.
+
+Concurrency Model & Limitations (Risk R7):
+- Configured with WAL mode (`PRAGMA journal_mode=WAL`), a 5 s busy timeout
+  (`PRAGMA busy_timeout=5000`), `synchronous=NORMAL`, and process-level write locks
+  (`threading.Lock`) to handle single-process concurrency.
+- Designed primarily for single-process durability. Multi-process deployment against a single
+  SQLite file may encounter `database is locked` under concurrent write contention.
+- Multi-process and distributed deployments are intended to use pluggable `StorageAdapter`
+  implementations (e.g., Postgres/Redis in Phase 2). Connection pooling is intentionally omitted.
+"""
+
 from __future__ import annotations
 
 import os
@@ -81,6 +93,19 @@ CREATE TABLE IF NOT EXISTS gateway_handles (
 
 
 class SQLiteStorage:
+    """SQLite storage adapter implementation for single-process durability.
+
+    Concurrency Model & Limitations (Risk R7):
+    - Uses WAL mode (`PRAGMA journal_mode=WAL`), a 5 s busy timeout (`PRAGMA busy_timeout=5000`),
+      `synchronous=NORMAL`, and process-level write locks (`threading.Lock`) to handle
+      single-process concurrency.
+    - Multi-process deployment against a single SQLite file may encounter `database is locked`
+      under write contention.
+    - Distributed or multi-process deployments are intended to use pluggable `StorageAdapter`
+      implementations (e.g., Postgres/Redis in Phase 2). Connection pooling is intentionally
+      omitted.
+    """
+
     def __init__(self, path: Path | str) -> None:
         path_obj = Path(path)
         path_obj.parent.mkdir(parents=True, exist_ok=True)
