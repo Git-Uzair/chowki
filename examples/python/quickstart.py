@@ -70,7 +70,6 @@ def main() -> None:
         token=token,
         decision=chowki.Decision.EDIT,
         patch=[{"op": "replace", "path": "/proposal/recipient", "value": "verified@example.com"}],
-        workflow_fn=payment_workflow,
         engine=engine,
     )
 
