@@ -334,10 +334,11 @@ section matches the code.
 
 ## Task 8 — Packaging & release engineering
 
-**Status:** COMPLETED
-**Failed Verify Cycles:** 1
+**Status:** PENDING
+**Failed Verify Cycles:** 2
 **Attempt Ledger:**
 - attempt 1: implemented CHANGELOG.md, pyproject.toml, release.yml, wheel_smoke_test.py, test_package_metadata.py -> FAIL (LICENSE file missing in sdist/wheel, ci.yml missing wheel_smoke_test job, pyproject.toml repo URL mismatch, features.md row claimed live PyPI release)
+- attempt 2: added LICENSE file, force-included in sdist/wheel, added wheel-smoke job to ci.yml, updated project URLs to Git-Uzair/chowki -> FAIL (wheel force-include polluted site-packages root, README claimed pip install chowki from PyPI when unpublished, features.md claimed release workflow verified without tag)
 
 **Goal:** `release.yml` has never fired; the version is running on hatch-vcs
 fallback; there is no CHANGELOG. Make the release mechanics boringly verified.

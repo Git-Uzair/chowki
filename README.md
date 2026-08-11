@@ -1,7 +1,6 @@
 # chowki
 
-[![PyPI Version](https://img.shields.io/pypi/v/chowki.svg)](https://pypi.org/project/chowki/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/chowki.svg)](https://pypi.org/project/chowki/)
+[![Python Versions](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://github.com/Git-Uzair/chowki)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 `chowki` is an agent-native, in-process control plane and durable execution engine designed for Python and polyglot environments. It embeds directly into existing application codebases via lightweight decorators (`@chowki.step`, `@chowki.workflow`), providing zero-infrastructure warm resume, automated multi-tier secret redaction, token budget guardrails, and HMAC-signed Human-in-the-Loop (HITL) approval gates.
@@ -30,16 +29,18 @@ Explore the **[Chowki User Guide](docs/user-guide/index.md)** for detailed tutor
 
 ## Installation
 
-Install `chowki` from PyPI:
+`chowki` is not published to PyPI yet — PyPI publication happens when a maintainer pushes the `v0.1.0` tag. Until then, install from a clone of this repository:
 
 ```bash
-pip install chowki
+git clone https://github.com/Git-Uzair/chowki.git
+cd chowki
+pip install ./python/chowki
 ```
 
-Or using `uv`:
+To work on `chowki` itself, sync the `uv` workspace instead:
 
 ```bash
-uv add chowki
+uv sync --all-extras --dev
 ```
 
 ## Quickstart

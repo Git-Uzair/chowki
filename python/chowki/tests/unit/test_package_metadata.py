@@ -8,7 +8,8 @@ import shutil
 import subprocess
 import tarfile
 import zipfile
-from pathlib import Path
+from fnmatch import fnmatch
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import pytest
@@ -77,7 +78,7 @@ def test_package_classifiers_and_metadata() -> None:
 
 
 def test_license_file_in_sdist_and_wheel() -> None:
-    """Verify that LICENSE file is included in both sdist tarball and wheel zip."""
+    """Verify LICENSE ships at the sdist root and only under the wheel's dist-info/licenses/."""
     root_dir = Path(__file__).resolve().parents[4]
     dist_dir = root_dir / "dist"
 
@@ -96,13 +97,17 @@ def test_license_file_in_sdist_and_wheel() -> None:
     with tarfile.open(sdist_path) as tar:
         sdist_names = tar.getnames()
         assert any(
-            name.endswith("LICENSE") or "/LICENSE" in name or name == "LICENSE"
+            PurePosixPath(name).name == "LICENSE" and len(PurePosixPath(name).parts) == 2
             for name in sdist_names
-        ), f"LICENSE not found in sdist {sdist_path.name}"
+        ), f"LICENSE not found at the root of sdist {sdist_path.name}: {sdist_names}"
 
     with zipfile.ZipFile(wheel_path) as zf:
         wheel_names = zf.namelist()
-        assert any(
-            name.endswith("LICENSE") or "/LICENSE" in name or name == "LICENSE"
-            for name in wheel_names
-        ), f"LICENSE not found in wheel {wheel_path.name}"
+
+    licensed = [name for name in wheel_names if fnmatch(name, "*.dist-info/licenses/LICENSE")]
+    assert licensed, f"LICENSE not found under dist-info/licenses/ in wheel {wheel_path.name}"
+
+    stray = [name for name in wheel_names if "/" not in name.rstrip("/")]
+    assert not stray, (
+        f"Wheel {wheel_path.name} installs top-level files into site-packages root: {stray}"
+    )

@@ -25,10 +25,10 @@
 
 ## Quickstart
 
-Install `chowki`:
+Install `chowki` from a clone of the repository (PyPI publication is pending the `v0.1.0` tag):
 
 ```bash
-pip install chowki
+pip install ./python/chowki
 ```
 
 Define a workflow with durable steps and guardrails:

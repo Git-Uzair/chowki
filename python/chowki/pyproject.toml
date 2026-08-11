@@ -47,12 +47,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/chowki"]
 
-[tool.hatch.build.targets.sdist.force-include]
-"LICENSE" = "LICENSE"
-
-[tool.hatch.build.targets.wheel.force-include]
-"LICENSE" = "LICENSE"
-
 [tool.hatch.version]
 source = "vcs"
 fallback-version = "0.1.0"
