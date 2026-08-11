@@ -21,7 +21,7 @@ BUDGETS: Final[dict[str, float]] = {
     # The research figure is 0.3 ms for msgspec's *Struct* encoder. The 1 MiB gate
     # encodes an untyped dict tree through the slower generic path, and the dev-box
     # median for it is bimodal (~0.20 ms or ~0.45 ms depending on where the OS places
-    # the process) — see docs/plans/01-foundation.md, Task 8 executor note. Gate raised
+    # the process) — see docs/plans/01-foundation.md (git history), Task 8 note. Gate raised
     # to 0.6 ms to sit above the slow mode; snapshot_total_1mb_ms remains the binding
     # 3.5 ms end-to-end claim, so component gates no longer sum to it.
     "encode_1mb_ms": 0.6,

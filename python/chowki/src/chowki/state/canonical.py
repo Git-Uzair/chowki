@@ -3,7 +3,8 @@
 Known deviation from RFC 8785:
 Float serialization uses Python's repr via json.dumps, which differs from
 ECMAScript Number::toString for extreme magnitudes (e.g. 1e21).
-# TODO(phase-2): full ES number formatting when the Node SDK lands
+# TODO(phase-3): full ES number formatting when the Node SDK lands
+# (docs/plans/00-roadmap.md; normative rules in docs/research/07-cross-sdk-parity.md)
 """
 
 from __future__ import annotations

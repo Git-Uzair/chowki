@@ -1,8 +1,8 @@
 """AES-256-GCM encryption at rest and KeyRing management.
 
-ChaCha20-Poly1305 fallback for AES-NI-less hardware is # TODO(phase-2)
-(02-serialization.md:231); the KeyRing interface already carries the key id needed
-to select an algorithm per key.
+ChaCha20-Poly1305 fallback for AES-NI-less hardware is # TODO(phase-5)
+(02-serialization.md:231, docs/plans/00-roadmap.md); the KeyRing interface already
+carries the key id needed to select an algorithm per key.
 """
 
 from __future__ import annotations

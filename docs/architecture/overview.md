@@ -16,12 +16,33 @@ For complete research background and detailed designs, see the [Research Documen
 ## Module Map
 
 - `chowki.config`: Process engine lifecycle, `ChowkiConfig`, `ChowkiEngine`, and process-global `configure()`.
-- `chowki.core`: Run context management (`RunContext`), step and workflow decorators (`step`, `workflow`), control flow (`pause`, `recover_runs`, `resumable_runs`), and warm resume (`resume`).
-- `chowki.state`: Hot-path snapshot pipeline (`SnapshotPipeline`), MessagePack codec, RFC 6902 delta patching (`DeltaChain`), automated secret redaction (`Redactor`), content-addressed blob storage (`BlobStore`), and key management (`KeyRing`).
-- `chowki.guardrails`: Loop detection (`LoopDetector`), budget tracking (`BudgetTracker`), and anomaly breaker (`AnomalyBreaker`).
+- `chowki.core`: Run context management (`RunContext`), step and workflow decorators (`step`, `workflow`), control flow (`pause`, `recover_runs`, `resumable_runs`, `reissue_token`), warm resume (`resume`), and operator escape hatches for dead step attempts (`release_step`, `complete_step`).
+- `chowki.state`: Hot-path snapshot pipeline (`SnapshotPipeline`), MessagePack codec, RFC 6902 delta patching (`DeltaChain`), automated secret redaction (`Redactor`), content-addressed blob storage (`BlobStore`, write-through backed by the storage adapter so blobs are as durable as the snapshots referencing them), and key management (`KeyRing`).
+- `chowki.guardrails`: Loop detection (`LoopDetector`, fed via public `chowki.record_text` / `chowki.record_transition`), budget tracking (`BudgetTracker`, fed via `chowki.report_usage`), and anomaly breaker (`AnomalyBreaker`).
 - `chowki.hitl`: Channel gateways (`ConsoleGateway`, `InMemoryGateway`), single-use HMAC token issuance (`TokenIssuer`), and audit logging.
 - `chowki.storage`: Durable storage adapters (`SQLiteStorage`, `MemoryStorage`).
 - `chowki.telemetry`: Structured JSON logging (`configure_logging`) and OpenTelemetry tracing and metrics (`span_for_step`, `record_snapshot_metrics`).
+
+## Suspension Model
+
+A run suspends durably (status `PAUSED`, single-use HMAC resume token, gateway
+notification) through two paths, distinguished by `PauseRequest.origin`:
+
+- **`"gate"`** — the workflow body called `chowki.pause()`. On resume, the re-execution
+  falls through the gate, which re-applies any human `EDIT` patch at that point in the
+  body.
+- **`"auto"`** — a guardrail/breaker decision (ADR-005): a step that exhausted its
+  retries, loop detection, or a hard budget breach with `hard_budget_action="PAUSE"`.
+  `WorkflowPaused` is raised chained from the original error. There is no gate in the
+  body, so resume seeds the re-execution with the decided (patched) state directly, and
+  the failed step retries under the failed-step semantics below.
+
+Idempotent step recovery is fail-safe: a cleanly `FAILED` attempt retries on
+re-invocation (its record proves the attempt is accounted for), while a mid-step death
+(`RUNNING` record) refuses to re-execute until an operator confirms the side effect's
+fate via `chowki.release_step` (it did not happen) or `chowki.complete_step` (it did,
+with the supplied result). A lost or burnt resume token is re-minted with
+`chowki.reissue_token(run_id)`.
 
 ## Storage & Concurrency Model
 
@@ -34,7 +55,7 @@ The default embedded `SQLiteStorage` adapter is configured for single-process co
 - **Configuration:** Uses WAL mode (`PRAGMA journal_mode=WAL`), a 5 s busy timeout (`PRAGMA busy_timeout=5000`), `synchronous=NORMAL`, and process-level write locking (`threading.Lock`).
 - **Single-Process Focus:** Process-level write locks manage thread safety within a single process.
 - **Multi-Process Limitation:** Multi-process deployments operating against a single SQLite database file may encounter `database is locked` errors under concurrent write contention.
-- **Pluggable Architecture:** Multi-process and distributed production deployments are intended to use pluggable `StorageAdapter` implementations (such as PostgreSQL or Redis adapters in Phase 2). Connection pooling is intentionally omitted in `SQLiteStorage`.
+- **Pluggable Architecture:** Multi-process and distributed production deployments are intended to use pluggable `StorageAdapter` implementations (PostgreSQL or Redis adapters in roadmap Phase 5 — see `docs/plans/00-roadmap.md`). Connection pooling is intentionally omitted in `SQLiteStorage`.
 
 ## Performance Budgets
 
