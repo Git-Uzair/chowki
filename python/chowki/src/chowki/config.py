@@ -155,6 +155,16 @@ def get_engine() -> ChowkiEngine:
     return _engine
 
 
+def active_engine() -> ChowkiEngine | None:
+    """Return the process-global engine, or None when none was installed yet.
+
+    Unlike :func:`get_engine` this never creates one: code that merely *describes* the
+    current setup (the console pause hint) must not install a default engine, because
+    doing so opens ``.chowki/chowki.db`` in the working directory as a side effect.
+    """
+    return _engine
+
+
 def configure(**kwargs: Any) -> ChowkiEngine:
     """Build a ChowkiConfig from kwargs, replace the process engine, closing any previous engine."""
     global _engine

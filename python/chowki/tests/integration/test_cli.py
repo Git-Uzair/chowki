@@ -22,6 +22,7 @@ def run_cli(
     args: list[str],
     *,
     extra_env: dict[str, str] | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     repo_src = Path(__file__).resolve().parents[2] / "src"
     env = os.environ.copy()
@@ -39,7 +40,9 @@ def run_cli(
                 env[k] = v
 
     cmd = [sys.executable, "-m", "chowki", *args]
-    return subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)  # noqa: S603
+    return subprocess.run(  # noqa: S603
+        cmd, capture_output=True, text=True, env=env, cwd=cwd, check=False
+    )
 
 
 def test_cli_help_and_version() -> None:
@@ -289,6 +292,92 @@ def test_cli_recover_and_rerun(tmp_path: Path) -> None:
     )
     assert res_rerun.returncode == 0
     assert "rec finished" in res_rerun.stdout
+
+
+def test_console_hint_command_resumes_a_run_paused_under_a_custom_engine(tmp_path: Path) -> None:
+    """The command the console gateway prints must work verbatim, not just look plausible.
+
+    The run is paused under `@chowki.workflow(engine=...)` with a non-default database, so a
+    hint missing `--db` would send the CLI at `./.chowki/chowki.db` and exit 1.
+    """
+    db_path = tmp_path / "custom" / "mydb.db"
+    secret = "test-secret-32-bytes-long-123456"
+
+    mod_path = tmp_path / "fixture_engine_wf.py"
+    mod_path.write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        "\n"
+        "import chowki\n"
+        "from chowki.config import ChowkiConfig, ChowkiEngine\n"
+        "from chowki.errors import WorkflowPaused\n"
+        "from chowki.hitl.console import ConsoleGateway\n"
+        "\n"
+        "ENGINE = ChowkiEngine(\n"
+        "    ChowkiConfig(\n"
+        "        db_path=Path(os.environ['CHOWKI_DB']),\n"
+        "        gateway=ConsoleGateway(),\n"
+        "        resume_secret=os.environ['CHOWKI_RESUME_SECRET'],\n"
+        "    )\n"
+        ")\n"
+        "\n"
+        "@chowki.workflow(engine=ENGINE)\n"
+        "def engine_bound_wf() -> str:\n"
+        "    res = chowki.pause(reason='need approval', payload={'amount': 100})\n"
+        "    return f'approved: {res}'\n"
+        "\n"
+        "def start() -> None:\n"
+        "    try:\n"
+        "        engine_bound_wf(run_id='run-eng-1')\n"
+        "    except WorkflowPaused:\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+
+    extra_env = {
+        "PYTHONPATH": str(tmp_path),
+        "CHOWKI_DB": str(db_path),
+        "CHOWKI_RESUME_SECRET": secret,
+    }
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(Path(__file__).resolve().parents[2] / "src"), str(tmp_path), env.get("PYTHONPATH", "")]
+    )
+    env.update({k: v for k, v in extra_env.items() if k != "PYTHONPATH"})
+
+    paused = subprocess.run(
+        [sys.executable, "-c", "import fixture_engine_wf as m; m.start()"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        check=False,
+    )
+    assert paused.returncode == 0, paused.stderr
+
+    hint = next(
+        line.split("To resume via CLI:", 1)[1].strip()
+        for line in paused.stdout.splitlines()
+        if "To resume via CLI:" in line
+    )
+    token = next(
+        line.split(":", 1)[1].strip()
+        for line in paused.stdout.splitlines()
+        if line.startswith("Resume Token:")
+    )
+    assert f"--db {db_path}" in hint
+    assert "-m fixture_engine_wf" in hint
+
+    argv = hint.split()
+    assert argv[0] == "chowki"
+    argv = [token if part == "<above>" else part for part in argv[1:]]
+
+    # No default database may be created in the working directory by either process.
+    assert not (tmp_path / ".chowki").exists()
+
+    resumed = run_cli(argv, extra_env=extra_env, cwd=tmp_path)
+    assert resumed.returncode == 0, resumed.stderr
+    assert "approved" in resumed.stdout
 
 
 def test_cli_error_handling(tmp_path: Path) -> None:

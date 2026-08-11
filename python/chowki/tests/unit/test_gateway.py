@@ -1,6 +1,8 @@
 # python/chowki/tests/unit/test_gateway.py
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from chowki.config import ChowkiEngine
@@ -206,3 +208,52 @@ def test_console_gateway_cli_hint_formatting(
 
     reset_engine()
     clear_registry()
+
+
+def test_console_gateway_hint_uses_the_engine_that_paused_the_run(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run paused under a non-global engine must be resumable by the printed command."""
+    from chowki.config import ChowkiConfig, reset_engine
+
+    monkeypatch.chdir(tmp_path)
+    reset_engine()
+    custom_db = tmp_path / "mydb.db"
+    engine = ChowkiEngine(ChowkiConfig(db_path=custom_db, gateway=ConsoleGateway()))
+
+    @workflow(engine=engine)
+    def pipeline() -> None:
+        pause(reason="review", permitted_actions=("APPROVE",))
+
+    with pytest.raises(WorkflowPaused):
+        pipeline(run_id="run-p6")
+
+    out = capsys.readouterr().out
+    assert f"To resume via CLI: chowki --db {custom_db} " in out
+    engine.close()
+
+
+def test_console_gateway_hint_creates_no_default_database(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Formatting a hint must not install a default engine nor open a database."""
+    from chowki.config import reset_engine
+
+    monkeypatch.chdir(tmp_path)
+    reset_engine()
+    ConsoleGateway().notify(
+        PauseNotice(
+            run_id="run-nodb",
+            workflow="plain_wf",
+            step_id="s#0",
+            reason="test",
+            payload={},
+            permitted_actions=("APPROVE",),
+            reviewers=(),
+            token="TOK3",
+            created_at_utc="2026-08-11T00:00:00Z",
+        )
+    )
+    out = capsys.readouterr().out
+    assert "To resume via CLI: chowki resume run-nodb --token <above> --decision APPROVE" in out
+    assert not (tmp_path / ".chowki").exists()

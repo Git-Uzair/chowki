@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -26,15 +25,28 @@ def _get_workflow_module(workflow_name: str) -> str | None:
 
 
 def _get_non_default_db_path() -> Path | None:
-    from chowki.config import get_engine
+    """Database file the printed CLI command must be pointed at, if not the default one.
+
+    The engine that paused *this* run is asked first, so a run under
+    ``@chowki.workflow(engine=...)`` prints the command that can actually reach it; the
+    process-global engine is consulted only if one already exists. Nothing here creates
+    an engine or touches the filesystem: printing a notice must not open a database.
+    """
+    from chowki.config import active_engine
+    from chowki.core.context import current_run, in_run
     from chowki.storage import DEFAULT_DB_PATH
 
-    with contextlib.suppress(Exception):
-        engine = get_engine()
-        db_path = getattr(engine.config, "db_path", None)
-        if db_path is not None and Path(db_path) != DEFAULT_DB_PATH:
-            return Path(db_path)
-    return None
+    engine = current_run().engine if in_run() else active_engine()
+    if engine is None:
+        return None
+    # Read off the adapter, not the config: an engine built with an explicit
+    # `storage=SQLiteStorage(path)` keeps the default `config.db_path`. Adapters with no
+    # file at all (MemoryStorage) have no attribute and get no `--db`.
+    raw = getattr(engine.storage, "db_path", None)
+    if not isinstance(raw, (str, Path)):
+        return None
+    db_path = Path(raw)
+    return None if db_path == DEFAULT_DB_PATH else db_path
 
 
 class ConsoleGateway:
