@@ -8,6 +8,17 @@ import sys
 import structlog
 
 
+def _add_logger_name(
+    logger: structlog.types.WrappedLogger,
+    method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    if "logger" not in event_dict:
+        name = getattr(logger, "name", None)
+        event_dict["logger"] = name if name else "chowki"
+    return event_dict
+
+
 def configure_logging(environment: str = "production", log_level: str = "INFO") -> None:
     """Configure structlog for application logging.
 
@@ -16,6 +27,7 @@ def configure_logging(environment: str = "production", log_level: str = "INFO") 
     level = getattr(logging, log_level.upper(), logging.INFO)
 
     shared_processors: list[structlog.types.Processor] = [
+        _add_logger_name,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),

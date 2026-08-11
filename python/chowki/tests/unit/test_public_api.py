@@ -71,3 +71,33 @@ def test_snapshot_envelope_schema_required_fields_match_struct() -> None:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     struct_required = [f.name for f in msgspec.structs.fields(SnapshotEnvelope) if f.required]
     assert schema["required"] == struct_required
+
+
+def test_report_usage_persists_in_run_record() -> None:
+    from chowki.config import ChowkiConfig, ChowkiEngine
+    from chowki.storage.memory import MemoryStorage
+
+    engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage()))
+
+    @chowki.workflow(engine=engine)
+    def my_workflow() -> str:
+        chowki.report_usage(chowki.Usage(input_tokens=1200, output_tokens=300))
+        return "done"
+
+    my_workflow(run_id="run_usage_test")
+    record = engine.storage.get_run("run_usage_test")
+    assert record is not None
+    assert record.usage.input_tokens == 1200
+    assert record.usage.output_tokens == 300
+    assert record.usage.billable_tokens == 1500
+
+    @chowki.workflow(engine=engine)
+    def my_int_workflow() -> str:
+        chowki.report_usage(500)
+        return "done"
+
+    my_int_workflow(run_id="run_int_usage_test")
+    record_int = engine.storage.get_run("run_int_usage_test")
+    assert record_int is not None
+    assert record_int.usage.input_tokens == 500
+    assert record_int.usage.billable_tokens == 500
