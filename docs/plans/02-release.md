@@ -371,6 +371,10 @@ new `python/chowki/tests/unit/test_package_metadata.py`.
 ## Task 9 — Ratify the durability decision (docs only)
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: updated research docs and limits.md for synchronous dispatch -> FAIL (1 MiB base snapshot disk write latency vs in-memory pipeline dispatch latency distinction in research budget tables)
+- attempt 2: updated Row 5 in research budget tables and text amendments to explicitly distinguish in-memory pipeline dispatch (< 0.2 ms) from disk persistence -> PASS
 
 **Goal:** close the roadmap's write-behind question with the decision: **synchronous
 dispatch is the contract** — a snapshot is durable before the step returns; SIGKILL
