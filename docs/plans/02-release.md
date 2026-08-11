@@ -37,6 +37,7 @@ parallel once 1–2 are in; Task 8 requires all code tasks done.
 **Failed Verify Cycles:** 1
 **Attempt Ledger:**
 - attempt 1: implemented registry, resume-by-name, rerun -> FAIL (resolution happened after state mutation, README quickstart mirror missed, docs/features.md public API list missed, duplicate lookup logic in resume.py)
+- attempt 2: resolve workflow before state mutation, added _resolve_workflow helper, updated README.md and docs/features.md -> PASS
 
 **Goal:** callers stop passing workflow function references around; recovered runs
 become re-runnable. This is the enabler for both the CLI and the embed-in-your-app
@@ -80,7 +81,7 @@ Update the pinned public-API set (`rerun` joins `__all__`).
 
 ## Task 2 — Async-aware resume: `aresume` (fixes a verified bug)
 
-**Status:** PENDING
+**Status:** COMPLETED
 
 **Goal:** `resume()` on an **async** workflow currently returns an unawaited
 coroutine: the body never re-executes, the run is left RUNNING, and

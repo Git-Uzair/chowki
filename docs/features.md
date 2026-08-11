@@ -71,7 +71,7 @@ matrix in sync.
 | Side-effect rule (R4) | Every side effect must live inside a step: resume re-executes the workflow body. Documented in API docs, quickstart, `AGENTS.md`. | [03-durable-execution](research/03-durable-execution.md) | ✅ | ⬜ |
 | Single-writer-per-run | Concurrency inside one run (gather/`Promise.all` over steps) is undefined behavior until Phase 6 branch keys. Must be documented loudly in Node. | 07 §13 | ✅ (documented) | ⬜ |
 | Workflow registry | Register workflows by name at decoration; `resume`/`rerun` resolve by name so callers don't pass function references. | 02-release T1 | ✅ | ⬜ |
-| Async-aware resume (`aresume`) | Awaitable resume for async workflows; sync `resume()` refuses coroutine workflows loudly instead of returning an unawaited coroutine (verified Phase 1 bug). | 02-release T2 | 🔜 2 | ⬜ |
+| Async-aware resume (`aresume`) | Awaitable resume for async workflows; sync `resume()` refuses coroutine workflows loudly instead of returning an unawaited coroutine (verified Phase 1 bug). | 02-release T2 | ✅ | ⬜ |
 | Parallel steps, child workflows, cancellation, timers, signals | Deliberately absent everywhere until designed once. | 07 §13 | 🔜 6 | 🔜 6 |
 
 ## 2. State pipeline
