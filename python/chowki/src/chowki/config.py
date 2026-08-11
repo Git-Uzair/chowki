@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 #: Slot name (not a credential) under which the store keeps the resume HMAC bytes.
 _RESUME_SLOT: Final[str] = "resume"
 
+#: Slot name under which the store keeps the redaction-placeholder HMAC bytes.
+_REDACTION_SLOT: Final[str] = "redaction"
+
 
 @dataclass(slots=True)
 class ChowkiConfig:
@@ -59,8 +62,14 @@ class ChowkiEngine:
         else:
             self.keyring = None
 
+        # Persisted, not per-process random: the placeholder short-hash is an HMAC of
+        # the secret under this key, and stored state carries those placeholders, so a
+        # key that changed on every restart would redact the same secret to a different
+        # placeholder in every process -- breaking placeholder correlation across
+        # resumes and across-the-wire hash comparisons for otherwise identical state.
         self.redactor: Redactor = Redactor(
-            hmac_key=self._config.redaction_hmac_key or os.urandom(32)
+            hmac_key=self._config.redaction_hmac_key
+            or self.storage.get_or_create_secret(_REDACTION_SLOT)
         )
         # Backed by the storage adapter so blobs extracted from state are as
         # durable as the snapshots that reference them (a ref a fresh process

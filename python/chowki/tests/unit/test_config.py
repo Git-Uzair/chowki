@@ -55,6 +55,38 @@ def test_redaction_key_is_stable_within_an_engine() -> None:
     engine.close()
 
 
+def test_redaction_placeholders_are_stable_across_engines_on_one_database(
+    tmp_path: Path,
+) -> None:
+    """Placeholder short-hashes come from a persisted per-deployment key, so the
+    same secret must redact to the same placeholder before and after a restart."""
+    db = tmp_path / "chowki.db"
+    secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
+
+    first = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db), resume_secret=b"s" * 32))
+    a = first.redactor.redact_text(f"the key is {secret}")
+    first.close()
+
+    second = ChowkiEngine(ChowkiConfig(storage=SQLiteStorage(db), resume_secret=b"s" * 32))
+    b = second.redactor.redact_text(f"the key is {secret}")
+    second.close()
+
+    assert a == b
+    assert secret not in a
+
+
+def test_an_explicit_redaction_hmac_key_is_used_verbatim() -> None:
+    engine = ChowkiEngine(
+        ChowkiConfig(
+            storage=MemoryStorage(),
+            redaction_hmac_key=b"k" * 32,
+            resume_secret=b"s" * 32,
+        )
+    )
+    assert engine.redactor.hmac_key == b"k" * 32
+    engine.close()
+
+
 def test_the_resume_secret_is_stable_across_engines_on_one_database(tmp_path: Path) -> None:
     """Step idempotency keys are HMACs of this secret, so it must come off disk."""
     db = tmp_path / "chowki.db"
