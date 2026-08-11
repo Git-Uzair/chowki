@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from chowki.hitl.audit import AuditLog, build_audit_record
+from chowki.hitl.audit import AuditLog, build_audit_record, redact_patch
 from chowki.storage.memory import MemoryStorage
 
 
@@ -82,8 +82,7 @@ def test_secrets_never_reach_the_audit_log() -> None:
     from chowki.state.redact import Redactor
 
     secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
-    redactor = Redactor(hmac_key=b"k")
-    log = AuditLog(MemoryStorage(), redactor=redactor)
+    log = AuditLog(MemoryStorage(), redactor=Redactor(hmac_key=b"k"))
     log.append(
         build_audit_record(
             run_id="r",
@@ -92,7 +91,7 @@ def test_secrets_never_reach_the_audit_log() -> None:
             actor={},
             original_state_hash="h",
             patched_state_hash="h",
-            json_patch=redactor.redact([{"op": "replace", "path": "/key", "value": secret}]),
+            json_patch=[{"op": "replace", "path": "/key", "value": secret}],
             nonce="n",
         )
     )
@@ -104,8 +103,7 @@ def test_audit_log_preserves_high_entropy_run_id_and_system_metadata() -> None:
 
     high_entropy_run_id = "Zk9x2Lq7Rt4vNb8Wm3Ys6Pd1Ae"
     secret = "sk-" + "A1b2C3d4E5f6G7h8I9j0"
-    redactor = Redactor(hmac_key=b"k")
-    log = AuditLog(MemoryStorage(), redactor=redactor)
+    log = AuditLog(MemoryStorage(), redactor=Redactor(hmac_key=b"k"))
 
     rec = build_audit_record(
         run_id=high_entropy_run_id,
@@ -114,7 +112,7 @@ def test_audit_log_preserves_high_entropy_run_id_and_system_metadata() -> None:
         actor={"user_id": "U123456", "token": secret},
         original_state_hash="sha256:" + "a" * 64,
         patched_state_hash="sha256:" + "b" * 64,
-        json_patch=redactor.redact([{"op": "replace", "path": "/key", "value": secret}]),
+        json_patch=[{"op": "replace", "path": "/key", "value": secret}],
         nonce="n123",
         note="Approved secret " + secret,
     )
@@ -133,22 +131,62 @@ def test_audit_log_preserves_high_entropy_run_id_and_system_metadata() -> None:
     assert secret not in str(stored)
 
 
-def test_appending_an_already_redacted_patch_stores_it_unchanged() -> None:
-    """`resume()` redacts the human patch once and hashes the state that patch produces.
+def test_a_patch_value_is_redacted_in_its_destination_keys_context() -> None:
+    """A human's edit is only as safe as the key it lands under makes it.
 
-    The log's own redaction pass must therefore be a fixpoint over a patch that is
-    already redacted: if it rewrote the ops, the replay would rebuild a state whose hash
-    no longer matched the `patched_state_hash` recorded beside it.
+    "hunter2" matches no credential pattern and clears no entropy threshold: the only
+    tier that catches it is the key-name tier, and in a JSON Patch op the value sits
+    under `"value"`, never under `password`. `redact_patch` supplies the destination key
+    as that context, so the recorded op is no weaker than the state it describes.
+    """
+    from chowki.state.redact import PLACEHOLDER_RE, Redactor
+
+    redacted = redact_patch(
+        Redactor(hmac_key=b"k"),
+        [
+            {"op": "replace", "path": "/password", "value": "hunter2"},
+            {"op": "add", "path": "/nested/api_key", "value": "plain"},
+            {"op": "replace", "path": "/notes/0", "value": "all fine"},
+            {"op": "remove", "path": "/gone"},
+        ],
+    )
+
+    assert [op["op"] for op in redacted] == ["replace", "add", "replace", "remove"]
+    assert [op["path"] for op in redacted] == [
+        "/password",
+        "/nested/api_key",
+        "/notes/0",
+        "/gone",
+    ]
+    assert "value" not in redacted[3]
+    for op in redacted[:2]:
+        assert PLACEHOLDER_RE.fullmatch(cast(str, op["value"])) is not None
+    assert "hunter2" not in str(redacted)
+    assert "plain" not in str(redacted)
+    # A value under an ordinary key -- an array element here -- is left legible: the log
+    # is a governance record, and redaction is for credentials, not for every edit.
+    assert redacted[2]["value"] == "all fine"
+
+
+def test_appending_a_context_redacted_patch_stores_it_unchanged() -> None:
+    """`resume()` hashes the state its redacted patch produces, then hands it to the log.
+
+    The log's own redaction pass must therefore be a fixpoint over what `redact_patch`
+    returns: the replay re-applies exactly the ops the log stored, so a rewrite here
+    would leave `patched_state_hash` describing a document no replay could rebuild.
     """
     from chowki.state.redact import Redactor
 
     redactor = Redactor(hmac_key=b"k")
-    raw = [
-        {"op": "replace", "path": "/api_key", "value": "sk-" + "A1b2C3d4E5f6G7h8I9j0"},
-        {"op": "replace", "path": "/nested", "value": {"api_key": "plain"}},
-        {"op": "remove", "path": "/gone"},
-    ]
-    redacted = redactor.redact(raw)
+    redacted = redact_patch(
+        redactor,
+        [
+            {"op": "replace", "path": "/api_key", "value": "sk-" + "A1b2C3d4E5f6G7h8I9j0"},
+            {"op": "replace", "path": "/nested", "value": {"api_key": "plain"}},
+            {"op": "replace", "path": "/count", "value": 3},
+            {"op": "remove", "path": "/gone"},
+        ],
+    )
 
     log = AuditLog(MemoryStorage(), redactor=redactor)
     log.append(

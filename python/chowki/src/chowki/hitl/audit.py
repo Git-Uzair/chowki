@@ -21,9 +21,39 @@ _SYSTEM_FIELDS: Final[frozenset[str]] = frozenset(
         "original_state_hash",
         "patched_state_hash",
         "verification_details",
-        "json_patch",
     }
 )
+
+
+def _pointer_key(path: str) -> str:
+    """The dict key a JSON Pointer's last segment names, unescaped (RFC 6901 §3)."""
+    return path.rsplit("/", 1)[-1].replace("~1", "/").replace("~0", "~")
+
+
+def redact_patch(redactor: Redactor, patch: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Redact a human's JSON Patch the way the state it edits would redact it.
+
+    An op is a flat dict, so redacting one directly presents every edited value under
+    the key ``"value"`` -- not under the key the value is destined for. The key-name tier
+    is then blind, and it is the only tier that catches a credential a human types:
+    ``hunter2`` under ``/password`` matches no pattern and clears no entropy threshold,
+    so it would survive in the op while the state of record stored a placeholder,
+    leaving the append-only log weaker than the state it describes. Each value is
+    therefore redacted under the last segment of its own path.
+
+    The result is a fixpoint of ``Redactor.redact`` -- redaction preserves its own
+    placeholders -- which is what lets ``AuditLog.append`` redact the record it is handed
+    without disturbing the ops a replay re-applies at the gate.
+    """
+    out: list[dict[str, Any]] = []
+    for op in patch:
+        red = redactor.redact(dict(op))
+        if "value" in op:
+            in_context = redactor.redact({_pointer_key(str(op.get("path", ""))): op["value"]})
+            # One entry in, one entry out; the key itself may have been rewritten.
+            red["value"] = next(iter(in_context.values()))
+        out.append(red)
+    return out
 
 
 def build_audit_record(
