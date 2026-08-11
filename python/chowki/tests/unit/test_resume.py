@@ -803,3 +803,46 @@ def test_a_sensitive_key_edit_links_the_provenance_chain(engine: ChowkiEngine) -
     audits = engine.storage.list_audit(run_id="r_sens2")
     assert len(audits) == 2
     assert audits[1]["original_state_hash"] == audits[0]["patched_state_hash"]
+
+
+def test_a_low_entropy_password_edit_is_redacted_in_the_audit_log(engine: ChowkiEngine) -> None:
+    """The append-only log must be no weaker than the state of record it describes.
+
+    "hunter2" is caught by no pattern and no entropy threshold: only the key it is
+    written under makes it a secret. The log records the patch, so the patch has to be
+    redacted with that key in view -- and the hash recorded beside it must still name the
+    document the run continues from.
+    """
+    from chowki.state.canonical import content_hash
+    from chowki.state.redact import PLACEHOLDER_RE
+
+    @workflow(engine=engine)
+    def wf_pw() -> str:
+        current_run().state["password"] = "initial"
+        pause(reason="gate", permitted_actions=("EDIT",))
+        return "done"
+
+    with pytest.raises(WorkflowPaused) as exc:
+        wf_pw(run_id="r_pw")
+    token = exc.value.token
+    assert token is not None
+
+    result = resume(
+        run_id="r_pw",
+        token=token,
+        decision=Decision.EDIT,
+        patch=[{"op": "replace", "path": "/password", "value": "hunter2"}],
+        workflow_fn=wf_pw,
+        engine=engine,
+    )
+    assert result.value == "done"
+
+    audits = engine.storage.list_audit(run_id="r_pw")
+    assert len(audits) == 1
+    assert "hunter2" not in str(audits[0])
+    assert audits[0]["patched_state_hash"] == result.state_hash_after
+
+    persisted = probe_state_of_record(engine, "r_pw")
+    assert isinstance(persisted, dict)
+    assert PLACEHOLDER_RE.fullmatch(cast(str, persisted["password"])) is not None
+    assert content_hash(persisted) == result.state_hash_after

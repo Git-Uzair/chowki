@@ -24,7 +24,7 @@ from chowki.errors import (
     ReplayedNonceError,
     WorkflowPaused,
 )
-from chowki.hitl.audit import AuditLog, build_audit_record
+from chowki.hitl.audit import AuditLog, build_audit_record, redact_patch
 from chowki.hitl.tokens import ResumeClaims
 from chowki.state.canonical import content_hash
 from chowki.state.delta import Patch, apply_patch
@@ -153,9 +153,9 @@ def resume(
     # value yields `[REDACTED:key_name:...]` while the replay -- which applies the audit
     # log's already-redacted patch -- keeps the value's own `[REDACTED:<kind>:...]`
     # placeholder, so `state_hash_after` described a document no replay could rebuild.
-    effective_patch: Patch = (
-        cast(Patch, eff_engine.redactor.redact(cast(list[Any], patch))) if patch else []
-    )
+    # `redact_patch`, not a plain `redact`, because an op's value must be judged by the
+    # key it is destined for: a human's `hunter2` is a secret only under `/password`.
+    effective_patch: Patch = redact_patch(eff_engine.redactor, patch) if patch else []
 
     if decision is Decision.REJECT:
         audit_record = build_audit_record(
