@@ -55,7 +55,8 @@ def _persist_state_of_record(engine: ChowkiEngine, run: RunRecord, state: dict[s
     boundary index instead let such a write land *under* the base, leaving the deltas
     after it diffed against a document the decision had replaced.
     """
-    next_index = max((e.step_index for e in engine.storage.list_snapshots(run.run_id)), default=-1)
+    stored_max = engine.storage.max_snapshot_index(run.run_id)
+    next_index = stored_max if stored_max is not None else -1
     engine.drop_pipeline(run.run_id)
     engine.pipeline_for(run.run_id).snapshot(
         state,

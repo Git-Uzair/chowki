@@ -94,6 +94,12 @@ class MemoryStorage:
             res.sort(key=lambda e: e.step_index)
             return [copy.deepcopy(e) for e in res]
 
+    def max_snapshot_index(self, run_id: str) -> int | None:
+        with self._lock:
+            self._check_closed()
+            indices = [idx for (r_id, idx) in self._snapshots if r_id == run_id]
+            return max(indices) if indices else None
+
     def claim_idempotency_key(self, key: str, *, args_hash: str) -> bool:
         with self._lock:
             self._check_closed()
@@ -105,6 +111,16 @@ class MemoryStorage:
             created_at = datetime.now(UTC).isoformat()
             self._idempotency[key] = (args_hash, created_at)
             return True
+
+    def release_idempotency_key(self, key: str) -> bool:
+        """Delete a claim so the step that owns it may execute again.
+
+        This is the operator escape hatch behind :func:`chowki.release_step`; it is
+        never called on the normal execution path.
+        """
+        with self._lock:
+            self._check_closed()
+            return self._idempotency.pop(key, None) is not None
 
     def get_or_create_secret(self, name: str) -> bytes:
         """Return the named secret, minting it on first use.

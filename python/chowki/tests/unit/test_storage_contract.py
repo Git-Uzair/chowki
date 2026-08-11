@@ -128,6 +128,35 @@ def test_snapshots_since_last_base(store: StorageAdapter) -> None:
     assert [e.step_index for e in envs] == [2, 3]
 
 
+def test_max_snapshot_index_tracks_highest_stored_index(store: StorageAdapter) -> None:
+    """Run open must not decode every envelope just to find the next free index."""
+    from chowki.state.codec import seal
+
+    assert store.max_snapshot_index("r1") is None
+    store.put_run(_run())
+    for i in (0, 2, 1):
+        store.put_snapshot(
+            seal(
+                {"n": i},
+                run_id="r1",
+                workflow="demo",
+                tenant_id="t1",
+                step_index=i,
+                kind=SnapshotKind.BASE if i == 0 else SnapshotKind.DELTA,
+            )
+        )
+    assert store.max_snapshot_index("r1") == 2
+    assert store.max_snapshot_index("other") is None
+
+
+def test_released_idempotency_key_can_be_claimed_again(store: StorageAdapter) -> None:
+    """The operator escape hatch: releasing a claim makes the key claimable again."""
+    assert store.claim_idempotency_key("key-r", args_hash="h1") is True
+    assert store.release_idempotency_key("key-r") is True
+    assert store.release_idempotency_key("key-r") is False
+    assert store.claim_idempotency_key("key-r", args_hash="h1") is True
+
+
 def test_idempotency_claim_is_atomic_and_single_winner(store: StorageAdapter) -> None:
     assert store.claim_idempotency_key("key-1", args_hash="h1") is True
     assert store.claim_idempotency_key("key-1", args_hash="h1") is False
