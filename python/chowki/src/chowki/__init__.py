@@ -6,7 +6,7 @@ from chowki.config import ChowkiConfig, configure
 from chowki.core.context import current_run
 from chowki.core.decorators import complete_step, release_step, step
 from chowki.core.resume import resume
-from chowki.core.runner import pause, recover_runs, resumable_runs, workflow
+from chowki.core.runner import pause, recover_runs, reissue_token, resumable_runs, workflow
 from chowki.errors import (
     BudgetExceeded,
     ChowkiError,
@@ -50,6 +50,7 @@ __all__ = [
     "current_run",
     "pause",
     "recover_runs",
+    "reissue_token",
     "release_step",
     "report_usage",
     "resumable_runs",

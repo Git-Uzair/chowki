@@ -346,6 +346,61 @@ def pause(
     raise WorkflowPaused(ctx.run_id, step_id, token=token)
 
 
+def reissue_token(
+    run_id: str,
+    *,
+    engine: ChowkiEngine | None = None,
+    notify: bool = True,
+) -> str:
+    """Mint a fresh resume token for a PAUSED run from its stored pause request.
+
+    The escape hatch for a token that was lost, expired, or burnt by a resume
+    attempt that failed after nonce consumption: without it a paused run whose
+    token is gone can never move again. Each issued token carries its own
+    single-use nonce, so reissuing does not revoke earlier unconsumed tokens;
+    scope stays what the pause granted (same step, same permitted actions).
+    With ``notify`` (the default) the configured gateway is notified again so
+    reviewers receive the new token where they received the original.
+    """
+    eff_engine = engine or get_engine()
+    run = eff_engine.storage.get_run(run_id)
+    if run is None or run.status is not RunStatus.PAUSED or run.pause is None:
+        raise ChowkiStateError(f"chowki run {run_id} is not paused")
+
+    pause_req = run.pause
+    token = eff_engine.tokens.issue(
+        run_id=run_id,
+        step_id=pause_req.step_id,
+        permitted_actions=pause_req.permitted_actions,
+    )
+    logger = structlog.get_logger()
+    logger.warning("chowki_resume_token_reissued", run_id=run_id, step_id=pause_req.step_id)
+
+    gateway = eff_engine.gateway
+    if notify and gateway is not None:
+        notice = PauseNotice(
+            run_id=run_id,
+            workflow=run.workflow,
+            step_id=pause_req.step_id,
+            reason=pause_req.reason,
+            payload=pause_req.payload,
+            permitted_actions=pause_req.permitted_actions,
+            reviewers=pause_req.reviewers,
+            token=token,
+            created_at_utc=pause_req.created_at_utc,
+            channel=pause_req.channel,
+        )
+        try:
+            handle = gateway.notify(notice)
+            eff_engine.storage.put_gateway_handle(run_id, handle)
+        except Exception:
+            logger.exception(
+                "chowki_gateway_notify_failed", run_id=run_id, channel=pause_req.channel
+            )
+
+    return token
+
+
 def resumable_runs(engine: ChowkiEngine) -> list[RunRecord]:
     """List all incomplete (non-terminal) runs in storage."""
     resumable = {RunStatus.PENDING, RunStatus.RUNNING, RunStatus.PAUSED}
