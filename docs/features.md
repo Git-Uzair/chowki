@@ -16,10 +16,7 @@ Phase numbers refer to [`docs/plans/00-roadmap.md`](plans/00-roadmap.md).
 
 You need to remember **one file: this one.** Everything else is linked from here.
 
-**To plan the next batch of Python work:** the current Python plan is
-[`docs/plans/02-release.md`](plans/02-release.md) — the path to publishing v0.1.
-When it is finished (every task COMPLETED, plan deleted, roadmap flipped), give your
-plan agent:
+**To plan the next batch of work:** Phase 2 (Release v0.1) is **DONE** and Phase 3 (Cross-SDK spec prep + Node/TypeScript SDK) is next. Give your plan agent:
 
 > Read `docs/features.md`, `docs/plans/00-roadmap.md` (next non-DONE phase),
 > `docs/research/07-cross-sdk-parity.md`, the research doc named in that phase's
