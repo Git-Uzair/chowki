@@ -1,4 +1,4 @@
-# Note: This release workflow is unexercised in Phase 1 (Foundation / MVP).
+# Release Chowki to PyPI on version tag push using OIDC Trusted Publisher authentication.
 name: Release Chowki to PyPI
 
 on:

@@ -1,8 +1,20 @@
 # chowki
 
-`chowki` is an agent-native, in-process control plane and durable execution engine designed for Python and polyglot environments. It embeds directly into existing application codebases via lightweight decorators, providing zero-infrastructure warm resume, automated secret redaction, and active guardrails.
+[![PyPI Version](https://img.shields.io/pypi/v/chowki.svg)](https://pypi.org/project/chowki/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/chowki.svg)](https://pypi.org/project/chowki/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Planning anything? Start at [`docs/features.md`](docs/features.md)** — the complete language-agnostic feature catalog and Python/Node parity matrix, with the plan-generation workflow written into its header. The current work-in-progress plan is [`docs/plans/02-release.md`](docs/plans/02-release.md) (the path to publishing v0.1); phase scope lives in [`docs/plans/00-roadmap.md`](docs/plans/00-roadmap.md).
+`chowki` is an agent-native, in-process control plane and durable execution engine designed for Python and polyglot environments. It embeds directly into existing application codebases via lightweight decorators (`@chowki.step`, `@chowki.workflow`), providing zero-infrastructure warm resume, automated multi-tier secret redaction, token budget guardrails, and HMAC-signed Human-in-the-Loop (HITL) approval gates.
+
+**Planning anything? Start at [`docs/features.md`](docs/features.md)** — the complete language-agnostic feature catalog and Python/Node parity matrix, with the plan-generation workflow written into its header. Phase scope lives in [`docs/plans/00-roadmap.md`](docs/plans/00-roadmap.md).
+
+## Key Features
+
+- **Zero-Infrastructure Warm Resume**: Re-executes workflow bodies from the top with step memoisation on warm resume or process crash recovery without external orchestrator workers.
+- **Automated Multi-Tier Redaction**: Scans and redacts credentials, secret keys, and high-entropy tokens across step arguments, state snapshots, and audit logs using stable HMAC placeholders.
+- **Active Guardrails & Loop Breakers**: Protects against runaway agent loops (3-tier detection: tool-call hashes, Levenshtein text similarity, delegation graph cycles) and token budget overruns with configurable auto-pause actions.
+- **Human-in-the-Loop Approval Gates**: Cryptographically signs pause requests with single-use HMAC-SHA256 tokens and nonces, supporting `APPROVE`, `REJECT`, `EDIT` state patches, and `ESCALATE` decisions.
+- **Zero-Dependency CLI & Web App Embedding**: Operate runs via the `chowki` console script or embed approval handlers into FastAPI / Flask applications.
 
 ## User Guide & Documentation
 
@@ -17,6 +29,14 @@ Explore the **[Chowki User Guide](docs/user-guide/index.md)** for detailed tutor
 - **[Resuming Workflows in Production](docs/user-guide/resuming-in-production.md)** — FastAPI / Flask integration, async background tasks, and HTTP status mappings.
 
 ## Installation
+
+Install `chowki` from PyPI:
+
+```bash
+pip install chowki
+```
+
+Or using `uv`:
 
 ```bash
 uv add chowki
