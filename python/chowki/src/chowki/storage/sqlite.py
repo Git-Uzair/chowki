@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS gateway_handles (
     run_id TEXT PRIMARY KEY,
     blob BLOB
 );
+
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs (status);
+CREATE INDEX IF NOT EXISTS idx_audit_run_id ON audit (run_id);
 """
 
 
@@ -243,6 +246,16 @@ class SQLiteStorage:
             )
             return [decode_struct(row[0], SnapshotEnvelope) for row in cur.fetchall()]
 
+    def max_snapshot_index(self, run_id: str) -> int | None:
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.execute(
+                "SELECT MAX(step_index) FROM snapshots WHERE run_id = ?",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            return cast("int | None", row[0]) if row is not None else None
+
     def claim_idempotency_key(self, key: str, *, args_hash: str) -> bool:
         created_at = datetime.now(UTC).isoformat()
         with self._lock:
@@ -263,6 +276,17 @@ class SQLiteStorage:
             if row is not None and row[0] != args_hash:
                 raise ChowkiStorageError("idempotency key reused with a different payload")
             return False
+
+    def release_idempotency_key(self, key: str) -> bool:
+        """Delete a claim so the step that owns it may execute again.
+
+        This is the operator escape hatch behind :func:`chowki.release_step`; it is
+        never called on the normal execution path.
+        """
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.execute("DELETE FROM idempotency WHERE key = ?", (key,))
+            return cur.rowcount == 1
 
     def get_or_create_secret(self, name: str) -> bytes:
         """Return the named 32-byte secret, minting it on first use.

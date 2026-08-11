@@ -53,8 +53,8 @@ def _open_run(
         # Snapshot indices continue above everything already stored, while ordinals
         # restart at 0 so the replay reproduces the same step and gate ids. Sharing one
         # counter would make a replayed ordinal overwrite the snapshot it first wrote.
-        all_snapshots = engine.storage.list_snapshots(rid)
-        start_snapshot_index = max((e.step_index for e in all_snapshots), default=-1) + 1
+        stored_max = engine.storage.max_snapshot_index(rid)
+        start_snapshot_index = (stored_max if stored_max is not None else -1) + 1
 
         snaps = engine.storage.snapshots_for_resume(rid)
         state: dict[str, Any] = {}
