@@ -51,6 +51,51 @@ def test_uri_redaction_keeps_the_host(redactor: Redactor) -> None:
     assert "db.internal:5432/prod" in out
 
 
+def test_secrets_inside_utf8_bytes_values_are_redacted(redactor: Redactor) -> None:
+    """msgpack persists bytes natively, so a credential inside a UTF-8 bytes value
+    would reach storage in plaintext if the walk passed bytes through untouched."""
+    secret = SECRETS["openai"]
+    out = redactor.redact({"payload": f"the key is {secret}".encode()})
+    assert isinstance(out["payload"], bytes)
+    assert secret.encode() not in out["payload"]
+    assert PLACEHOLDER_RE.search(out["payload"].decode()) is not None
+
+
+def test_non_utf8_binary_bytes_pass_through_unchanged(redactor: Redactor) -> None:
+    """True binary (an image, an archive) cannot be text-scanned without corrupting
+    it; it passes through byte-identical. This is the documented redaction boundary:
+    secrets must not be smuggled inside non-UTF-8 binary values."""
+    blob = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + b"\x00" * 64
+    out = redactor.redact({"image": blob})
+    assert out["image"] == blob
+
+
+def test_clean_utf8_bytes_round_trip_byte_identical(redactor: Redactor) -> None:
+    data = b"nothing secret here, just prose over eight bytes"
+    out = redactor.redact({"note": data})
+    assert out["note"] == data
+
+
+def test_bytearray_and_memoryview_are_redacted_as_bytes_like(redactor: Redactor) -> None:
+    secret = SECRETS["github"]
+    data = f"token: {secret}".encode()
+    out = redactor.redact({"a": bytearray(data), "b": memoryview(data)})
+    assert isinstance(out["a"], bytearray)
+    assert secret.encode() not in bytes(out["a"])
+    assert isinstance(out["b"], bytes)
+    assert secret.encode() not in out["b"]
+
+
+def test_set_and_frozenset_elements_are_redacted(redactor: Redactor) -> None:
+    secret = SECRETS["slack"]
+    out = redactor.redact({"tags": {secret, "plain"}, "frozen": frozenset({secret})})
+    assert isinstance(out["tags"], set)
+    assert secret not in out["tags"]
+    assert "plain" in out["tags"]
+    assert isinstance(out["frozen"], frozenset)
+    assert secret not in out["frozen"]
+
+
 def test_sensitive_key_names_redact_the_whole_value(redactor: Redactor) -> None:
     out = redactor.redact({"api_key": "totally-plain-value", "Authorization": "abc"})
     assert out["api_key"] != "totally-plain-value"

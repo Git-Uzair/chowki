@@ -429,12 +429,35 @@ class Redactor:
                 for item in entries
             )
 
-        if isinstance(value, bytearray):
-            return bytearray(value)
-        if isinstance(value, set):
-            s_set = cast("set[Any]", value)
-            return set(s_set)
-        if isinstance(value, memoryview):
-            return value.tobytes()
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            return self._redact_binary(value)
+
+        if isinstance(value, (set, frozenset)):
+            members = cast("set[Any] | frozenset[Any]", value)
+            # No blob extraction inside sets: a ref would not survive inlining, and
+            # sets never reach the msgpack encoder anyway. Redacted strings stay
+            # hashable; unhashable members could never have been set members.
+            redacted = [self._redact_any(x, None, threshold, _NEVER_BLOB) for x in members]
+            return frozenset(redacted) if isinstance(value, frozenset) else set(redacted)
 
         return value
+
+    def _redact_binary(self, value: bytes | bytearray | memoryview) -> bytes | bytearray:
+        """Redact a bytes-like leaf if it is UTF-8 text; pass true binary through.
+
+        msgpack persists bytes natively, so a credential inside a UTF-8 bytes value
+        would otherwise reach storage in plaintext. Data that does not decode
+        strictly as UTF-8 cannot be text-scanned without corrupting it and passes
+        through unchanged -- the one redaction boundary callers must know about:
+        do not smuggle secrets inside non-UTF-8 binary values.
+        """
+        data = bytes(value)
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return bytearray(data) if isinstance(value, bytearray) else data
+        redacted = self.redact_text(text)
+        if redacted == text:
+            return bytearray(data) if isinstance(value, bytearray) else data
+        out = redacted.encode("utf-8")
+        return bytearray(out) if isinstance(value, bytearray) else out
