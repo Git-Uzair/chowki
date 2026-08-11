@@ -68,6 +68,22 @@ def _persist_state_of_record(engine: ChowkiEngine, run: RunRecord, state: dict[s
     )
 
 
+def _resolve_workflow(
+    workflow_fn: Callable[..., Any] | None,
+    workflow_name: str,
+) -> Callable[..., Any]:
+    if workflow_fn is not None:
+        return workflow_fn
+    target_fn = get_workflow(workflow_name)
+    if target_fn is None:
+        msg = (
+            f"workflow {workflow_name!r} not found in registry; "
+            "import the module defining the workflow or pass workflow_fn"
+        )
+        raise ChowkiConfigError(msg)
+    return target_fn
+
+
 def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any:
     return workflow_fn(run_id=run_id)
 
@@ -111,6 +127,14 @@ def resume(
     """
     eff_engine = engine or get_engine()
 
+    run = eff_engine.storage.get_run(run_id)
+
+    # Resolve workflow BEFORE consuming nonce / token verify / state mutations
+    wf_name = workflow if workflow is not None else (run.workflow if run is not None else "")
+    if run is None and workflow_fn is None and workflow is None:
+        raise ChowkiStateError(f"chowki run {run_id} is not paused")
+    target_fn = _resolve_workflow(workflow_fn, wf_name)
+
     claims: ResumeClaims | None = None
     token_exc: Exception | None = None
     try:
@@ -127,9 +151,9 @@ def resume(
     except Exception as err:
         token_exc = err
 
-    run = eff_engine.storage.get_run(run_id)
     if run is None or run.status is not RunStatus.PAUSED:
         raise ChowkiStateError(f"chowki run {run_id} is not paused")
+
     # Captured before the pause is cleared below: a gate re-applies the human patch
     # when the replay falls through it, an auto-pause has no gate in the body.
     pause_origin = run.pause.origin if run.pause is not None else "gate"
@@ -246,25 +270,6 @@ def resume(
     seed = reviewed if pause_origin == "gate" else state
     eff_engine.pending_resume_state[run_id] = (claims.step_id, seed)
 
-    target_fn = workflow_fn
-    if target_fn is None:
-        if workflow is not None:
-            target_fn = get_workflow(workflow)
-            if target_fn is None:
-                msg = (
-                    f"workflow {workflow!r} not found in registry; "
-                    "import the module defining the workflow or pass workflow_fn"
-                )
-                raise ChowkiConfigError(msg)
-        else:
-            target_fn = get_workflow(run.workflow)
-            if target_fn is None:
-                msg = (
-                    f"workflow {run.workflow!r} not found in registry; "
-                    "import the module defining the workflow or pass workflow_fn"
-                )
-                raise ChowkiConfigError(msg)
-
     val = _invoke_workflow(target_fn, run_id)
 
     return ResumeResult(
@@ -287,12 +292,5 @@ def rerun(
     if run is None:
         raise ChowkiStateError(f"chowki run {run_id!r} not found")
 
-    workflow_fn = get_workflow(run.workflow)
-    if workflow_fn is None:
-        msg = (
-            f"workflow {run.workflow!r} not found in registry; "
-            "import the module defining the workflow"
-        )
-        raise ChowkiConfigError(msg)
-
-    return _invoke_workflow(workflow_fn, run_id)
+    target_fn = _resolve_workflow(None, run.workflow)
+    return _invoke_workflow(target_fn, run_id)

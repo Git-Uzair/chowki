@@ -126,15 +126,31 @@ def test_resume_unresolvable_workflow_raises_config_error(engine: ChowkiEngine) 
     with pytest.raises(chowki.WorkflowPaused) as exc_info:
         unregistered_wf(run_id="run_unres_wf")
 
-    assert exc_info.value.token is not None
+    token = exc_info.value.token
+    assert token is not None
     with pytest.raises(ChowkiConfigError) as err_info:
         chowki.resume(
             run_id="run_unres_wf",
-            token=exc_info.value.token,
+            token=token,
             decision=chowki.Decision.APPROVE,
             engine=engine,
         )
     assert "not found in registry" in str(err_info.value)
+
+    # State and token must NOT be mutated on workflow resolution failure
+    run = engine.storage.get_run("run_unres_wf")
+    assert run is not None and run.status is chowki.RunStatus.PAUSED
+    assert len(engine.storage.list_audit(run_id="run_unres_wf")) == 0
+
+    # Token/nonce remains unconsumed, run stays PAUSED and resumable
+    res = chowki.resume(
+        run_id="run_unres_wf",
+        token=token,
+        decision=chowki.Decision.APPROVE,
+        workflow_fn=unregistered_wf,
+        engine=engine,
+    )
+    assert res.value == "done"
 
 
 def test_rerun_completes_recovered_pending_run(engine: ChowkiEngine) -> None:
