@@ -2,21 +2,51 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import os
+import shlex
+import subprocess  # `list2cmdline` only; nothing here spawns a process
+import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from chowki.hitl.gateway import ChannelAction, GatewayHandle, PauseNotice
 from chowki.types import Decision, JSONObject
 
 
+def _format_command(argv: Sequence[str]) -> str:
+    """Render argv as a command the local shell can run verbatim.
+
+    Quoting is per-platform on purpose: `shlex` quotes for POSIX shells, while `cmd.exe`
+    does not understand its single quotes and needs `list2cmdline` instead. Without this a
+    database path containing spaces tokenises into a truncated `--db` value.
+    """
+    if os.name == "nt":
+        return subprocess.list2cmdline(argv)
+    return shlex.join(argv)
+
+
+def _script_module_name() -> str | None:
+    """Importable name of the entry script, for workflows defined in `__main__`.
+
+    `python demo.py` can be reached again as `-m demo`; a REPL, `python -c ...`, or a
+    console-script wrapper has no `.py` entry point and gets no `-m` at all.
+    """
+    script = sys.argv[0] if sys.argv else ""
+    if not script:
+        return None
+    stem = Path(script).stem
+    return stem if Path(script).suffix == ".py" and stem.isidentifier() else None
+
+
 def _get_workflow_module(workflow_name: str) -> str | None:
     from chowki.core.registry import get_workflow
 
     wf = get_workflow(workflow_name)
-    if wf is not None:
-        mod = getattr(wf, "__module__", None)
-        if mod and mod not in ("__main__", "builtins"):
-            return str(mod)
+    mod = getattr(wf, "__module__", None) if wf is not None else None
+    if mod == "__main__":
+        mod = _script_module_name()
+    if mod and mod != "builtins":
+        return str(mod)
     if "." in workflow_name:
         parts = workflow_name.rsplit(".", 1)
         if parts[0]:
@@ -60,15 +90,20 @@ class ConsoleGateway:
 
     def notify(self, notice: PauseNotice) -> GatewayHandle:
         handle = GatewayHandle(channel="console", message_id=notice.run_id)
-        cli_parts = ["chowki"]
+        # One prefix for every command printed below: a run under a non-default database or
+        # a workflow the CLI has to import is unreachable without these flags, and that is
+        # as true of `reissue-token` as it is of `resume`.
+        prefix = ["chowki"]
         db_path = _get_non_default_db_path()
         if db_path is not None:
-            cli_parts.append(f"--db {db_path}")
+            prefix += ["--db", str(db_path)]
         mod_name = _get_workflow_module(notice.workflow)
         if mod_name is not None:
-            cli_parts.append(f"-m {mod_name}")
-        cli_parts.append(f"resume {notice.run_id} --token <above> --decision APPROVE")
-        cli_cmd = " ".join(cli_parts)
+            prefix += ["-m", mod_name]
+        resume_cmd = _format_command(
+            [*prefix, "resume", notice.run_id, "--token", "<above>", "--decision", "APPROVE"]
+        )
+        reissue_cmd = _format_command([*prefix, "reissue-token", notice.run_id])
 
         print("=" * 60)
         print(" CHOWKI WORKFLOW PAUSED")
@@ -82,12 +117,12 @@ class ConsoleGateway:
         print(f"Reviewers:         {', '.join(notice.reviewers) if notice.reviewers else 'None'}")
         print(f"Resume Token:      {notice.token}")
         print("=" * 60)
-        print(f"To resume via CLI: {cli_cmd}")
+        print(f"To resume via CLI: {resume_cmd}")
         print(
             f"To resume in Python: chowki.resume(run_id={notice.run_id!r}, token=<above>,"
             " decision=chowki.Decision.APPROVE)"
         )
-        print(f"Lost the token? chowki reissue-token {notice.run_id}")
+        print(f"Lost the token? {reissue_cmd}")
         print("=" * 60)
         return handle
 

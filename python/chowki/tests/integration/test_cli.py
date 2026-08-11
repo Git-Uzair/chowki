@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -294,13 +295,16 @@ def test_cli_recover_and_rerun(tmp_path: Path) -> None:
     assert "rec finished" in res_rerun.stdout
 
 
-def test_console_hint_command_resumes_a_run_paused_under_a_custom_engine(tmp_path: Path) -> None:
+def test_console_hint_command_resumes_a_run_paused_under_a_custom_engine(
+    tmp_path: Path, split_command: Callable[[str], list[str]]
+) -> None:
     """The command the console gateway prints must work verbatim, not just look plausible.
 
     The run is paused under `@chowki.workflow(engine=...)` with a non-default database, so a
-    hint missing `--db` would send the CLI at `./.chowki/chowki.db` and exit 1.
+    hint missing `--db` would send the CLI at the default database and exit 1. The path
+    contains a space, so an unquoted hint tokenises into a truncated `--db` value.
     """
-    db_path = tmp_path / "custom" / "mydb.db"
+    db_path = tmp_path / "custom dir" / "mydb.db"
     secret = "test-secret-32-bytes-long-123456"
 
     mod_path = tmp_path / "fixture_engine_wf.py"
@@ -365,11 +369,8 @@ def test_console_hint_command_resumes_a_run_paused_under_a_custom_engine(tmp_pat
         for line in paused.stdout.splitlines()
         if line.startswith("Resume Token:")
     )
-    assert f"--db {db_path}" in hint
-    assert "-m fixture_engine_wf" in hint
-
-    argv = hint.split()
-    assert argv[0] == "chowki"
+    argv = split_command(hint)
+    assert argv[:5] == ["chowki", "--db", str(db_path), "-m", "fixture_engine_wf"]
     argv = [token if part == "<above>" else part for part in argv[1:]]
 
     # No default database may be created in the working directory by either process.
