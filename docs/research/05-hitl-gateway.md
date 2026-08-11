@@ -262,6 +262,24 @@ Actions embedded in UI buttons do not rely on plain task IDs. `chowki` issues co
 * Action tokens default to a strict TTL (e.g. 24 hours).
 * Expired tokens trigger automatic task escalation or timeout handlers in the `chowki` execution engine.
 
+> **Amendment (2026-08-11, normative — token lifecycle as shipped):** the wire format
+> is `b64url_nopad(msgpack(claims)) + "." + b64url_nopad(HMAC_SHA256(secret, body))`
+> — pinned with the exact claims struct and verification order in
+> `07-cross-sdk-parity.md` §6, so either SDK can verify the other's tokens. Three
+> corrections to the prose above from the implementation: (a) nonces are **lifetime
+> single-use** — consumed rows are never garbage-collected on expiry, because deleting
+> an expired row would make an already-consumed token replayable; reclamation is an
+> explicit Phase 2 maintenance operation. (b) "Expired tokens trigger automatic
+> escalation or timeout handlers" presumes a timer subsystem no document designs —
+> a pure in-process library has no scheduler; durable timers are a Phase 6 item and
+> today expiry simply fails verification. (c) A lost or burnt token (e.g. a resume
+> attempt that consumed the nonce and then failed) is recovered with
+> **`chowki.reissue_token(run_id)`** — re-mints from the stored `PauseRequest` with
+> identical scope and a fresh nonce, re-notifying the gateway; every SDK must ship
+> it, and `PauseRequest` now carries `origin` (`"gate"` | `"auto"`) which resume
+> seeding depends on (`07-cross-sdk-parity.md` §9). `allowed_roles` is carried but
+> **not yet enforced** — the authorization layer is Phase 4.
+
 ---
 
 ## 3. Approval UX Patterns & State Patching

@@ -132,6 +132,22 @@ Modern LLM provider billing architectures (OpenAI, Anthropic, Google) split usag
 * [Source: https://www.agentnotebook.dev/tutorials/langgraph-recursion-limit (Accessed: 2026-08-08)]
 * [Source: https://zalt.me/blog/2026/06/ai-guardrails-output-validation (Accessed: 2026-08-08)]
 
+> **Amendment (2026-08-11, normative — how "Auto-Pause" is actually wired):**
+> "Auto-Pause" in this table is a real, durable suspension, not an advisory flag
+> (Phase 1 initially shipped it as `exc.chowki_action` on a FAILED run with no resume
+> token — a paused run nobody could resume). The wired contract
+> (`07-cross-sdk-parity.md` §9): a breaker PAUSE decision from a step, or a bare
+> `InfiniteLoopDetected`/`BudgetExceeded` raised outside any step, persists the run
+> PAUSED with a warm snapshot, mints a single-use resume token, notifies the gateway,
+> and raises `WorkflowPaused` chained from the original error
+> (`PauseRequest.origin = "auto"`). A resumed budget-pause re-seeds spend from the
+> persisted usage, so an unchanged ceiling re-pauses — raising the budget and
+> approving is the operator flow. **Auto-Reask and Auto-Summarize remain application
+> signals** attached to the exception; the engine performs neither (summarization is
+> a model call — Phase 6 with provider integrations). The guardrail feeds are public
+> SDK surface in every language: `report_usage(usage)`, `record_text(text)`,
+> `record_transition(src, dst)` — tiers 2 and 3 are dead code without them.
+
 ---
 
 ## 4. Prior Art & Defaults
