@@ -1,6 +1,6 @@
 [project]
 name = "chowki"
-description = "In-process agent state preservation, guardrails, and warm resume."
+description = "Durable execution for LLM agents: crash recovery, step memoization, human-in-the-loop approval gates, secret redaction, and token budgets. No server, no worker — just SQLite."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -10,15 +10,28 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: AsyncIO",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security :: Cryptography",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Recovery Tools",
     "Typing :: Typed",
 ]
-keywords = ["agent", "ai", "state-preservation", "resumption", "hitl", "guardrails", "workflow", "llm"]
+keywords = [
+    "durable-execution", "crash-recovery", "resume", "replay", "idempotency",
+    "memoization", "exactly-once", "human-in-the-loop", "hitl", "approval-workflow",
+    "audit-log", "guardrails", "circuit-breaker", "loop-detection", "token-budget",
+    "cost-control", "secret-redaction", "llm", "agents", "ai-agents", "llmops",
+    "langchain", "langgraph", "sqlite",
+]
 dependencies = [
     "msgspec>=0.18.6",
     "jsonpatch>=1.33",

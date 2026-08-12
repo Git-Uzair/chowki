@@ -187,6 +187,7 @@ BANNED_WORD_ALLOWLIST = frozenset(
 **Failed Verify Cycles:** 1
 **Attempt Ledger:**
 - attempt 1: add wedge sentence and differentiators -> VERDICT FAIL (plan specified bold blockquote `> **...**`, but unbolded single-line quote was inserted without bold tags)
+- attempt 2: update blockquotes to bold `> **...**` in both READMEs -> VERDICT PASS
 **Difficulty:** EASY
 **Depends on:** Task 1 (the term below cannot be written before the allowlist exists).
 **Goal:** both READMEs open with the sentence that explains why chowki exists next to a
@@ -301,7 +302,7 @@ served from the record instead of re-issued.
 
 ## Task 3 — PyPI metadata: description, keywords, classifiers
 
-**Status:** PENDING
+**Status:** COMPLETED
 **Difficulty:** EASY
 **Goal:** the fields PyPI actually indexes describe a durable-execution library for LLM
 agents instead of terms nobody searches.

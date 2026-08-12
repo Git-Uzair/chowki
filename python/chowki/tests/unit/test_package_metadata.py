@@ -111,3 +111,39 @@ def test_license_file_in_sdist_and_wheel() -> None:
     assert not stray, (
         f"Wheel {wheel_path.name} installs top-level files into site-packages root: {stray}"
     )
+
+
+def test_package_carries_ai_and_recovery_classifiers() -> None:
+    """PyPI classifiers are faceted-search links; without these the package has no AI signal."""
+    try:
+        meta = importlib.metadata.metadata("chowki")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("chowki package metadata not found in current environment")
+
+    classifiers = meta.get_all("Classifier") or []
+    for required in (
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+        "Topic :: System :: Recovery Tools",
+        "Topic :: System :: Distributed Computing",
+        "Topic :: Security :: Cryptography",
+        "Topic :: System :: Monitoring",
+        "Topic :: Database",
+        "Intended Audience :: System Administrators",
+    ):
+        assert required in classifiers, f"missing classifier: {required}"
+
+
+def test_package_summary_and_keywords_are_searchable() -> None:
+    """`description` is the highest-weighted free text on a PyPI project page."""
+    try:
+        meta = importlib.metadata.metadata("chowki")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("chowki package metadata not found in current environment")
+
+    summary = meta["Summary"].lower()
+    for term in ("durable execution", "llm agents", "memoization", "sqlite"):
+        assert term in summary, f"PyPI summary no longer mentions {term!r}"
+
+    keywords = {k.strip() for k in (meta["Keywords"] or "").split(",")}
+    for term in ("durable-execution", "crash-recovery", "memoization", "human-in-the-loop"):
+        assert term in keywords, f"PyPI keywords no longer contain {term!r}"
