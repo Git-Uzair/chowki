@@ -4,11 +4,35 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+  # Workspace root: owns uv.lock. Left unfiltered on purpose — the lockfile is what CI
+  # resolves and what a security advisory has to move, so every update here is wanted.
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
+  # Published package: owns the `>=` floors in python/chowki/pyproject.toml.
   - package-ecosystem: "uv"
     directory: "/python/chowki"
     schedule:
       interval: "weekly"
+    # chowki is a library, and a floor is what a *consumer* is permitted to install, not
+    # what we test against. Dependabot raises floors, which is right for an application
+    # and wrong here: bumping `opentelemetry-api` to >=1.44.0 locks out every stack pinned
+    # to an older OTel without changing one tested byte, since uv.lock already resolves to
+    # the latest. The floors are deliberately permissive and the `lowest-floors` CI job
+    # proves they work. Nothing is capped by these constraints, so a consumer hitting a CVE
+    # can always install the patched release; advisories against the versions chowki itself
+    # builds on still arrive through uv.lock via the root entry above.
+    ignore:
+      - dependency-name: "msgspec"
+        update-types:
+          ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: "structlog"
+        update-types:
+          ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: "opentelemetry-api"
+        update-types:
+          ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
+      - dependency-name: "opentelemetry-sdk"
+        update-types:
+          ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
