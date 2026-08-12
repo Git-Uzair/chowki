@@ -7,9 +7,14 @@ To maintain high performance and simplicity without external orchestration serve
 ## 1. Single-Writer Per Run Boundary (No `asyncio.gather` Over Steps)
 
 Within a single workflow run, step execution and state persistence are strictly sequential:
-- **No Concurrent Steps in One Run:** You must not run multiple `@chowki.step` functions concurrently using `asyncio.gather()` or thread pools within the same workflow run.
-- **Why:** State snapshots rely on strict step ordering and linear delta patching (RFC 6902). Concurrent steps within a single run would introduce non-deterministic step ordinals and state race conditions.
+- **Concurrent Steps in One Run Are Refused:** `chowki` does not let two `@chowki.step` functions of one run execute at the same time. A second step entering the run from a different task or thread while another is still running raises `ChowkiConcurrencyError` immediately — before any step ordinal is allocated or any record is written — instead of silently corrupting the run.
+- **What Is Detected:** Any concurrent entry that carries the run's context, which is what `asyncio.gather()` and `asyncio.to_thread()` do (the first copies the context per task, the second per thread). A step launched through a bare `threading.Thread` or a `ThreadPoolExecutor.submit()` call does *not* inherit the run `ContextVar`: it runs outside the run entirely, so it is neither refused nor recorded — the decorated function executes as a plain function call, with no memoisation, no idempotency claim, and no snapshot. Copy the context explicitly (`contextvars.copy_context().run(...)`) if you want such a call inside the run, and it will be refused like any other fan-out.
+- **The Error Is Not Retried:** `ChowkiConcurrencyError` is permanent, not transient, so the guardrail breaker never retries it and never converts it into an auto-pause. It propagates out of the enclosing step and out of the workflow unchanged, and the run is recorded `FAILED`.
+- **Why:** State snapshots rely on strict step ordering and linear delta patching (RFC 6902). Concurrent steps within a single run would interleave step ordinals and diff each snapshot against another step's document, so the damage would only surface on the next resume.
+- **Nesting Is Not Concurrency:** A step that calls another step (`pay_invoice` → `_transfer`) runs on the same task and thread and is unaffected.
 - **Concurrent Runs Allowed:** You can execute as many independent workflow runs in parallel as your host system can handle.
+- **Known False Positive:** A step invoked through `asyncio.to_thread()` *from inside another step* is sequential, but it is refused too — `chowki` cannot tell it apart from a real fan-out. Do the offload outside the step, or leave the inner function undecorated.
+- **Parallel Steps Are Phase 6:** Real fan-out within a run needs deterministic branch keys; until then, run the steps sequentially or run independent runs concurrently.
 
 ---
 
@@ -69,6 +74,7 @@ Always treat secret redaction as an additional layer of security rather than a r
 
 ## What Can Go Wrong
 
-1. **Running `asyncio.gather()` Over Steps:** Wrapping `@chowki.step` functions in `asyncio.gather()` causes state delta corruption or race conditions. Run steps sequentially within a workflow, or run independent workflows concurrently.
-2. **Passing Structureless Step Arguments:** An argument chowki cannot expand (a C extension object, an open socket) collapses to `<TypeName>` and logs `chowki_step_args_opaque`; two such instances then share an argument hash and can collide in the step cache. Pass a Struct, dataclass, model, or dict instead.
-3. **Assuming Redaction Obfuscates Non-UTF-8 Binary Blobs:** Passing API keys inside raw non-UTF-8 binary bytes objects (that fail UTF-8 decoding) bypasses regex redaction scanning.
+1. **Running `asyncio.gather()` Over Steps:** Wrapping `@chowki.step` functions in `asyncio.gather()` or `asyncio.to_thread()` raises `ChowkiConcurrencyError` at the second step's entry, unretried — the run fails loudly rather than writing a snapshot chain no resume can rebuild. Run steps sequentially within a workflow, or run independent workflows concurrently.
+2. **Calling a Step From a Bare Thread:** A step submitted to a `ThreadPoolExecutor` or started on a `threading.Thread` without copying the context runs outside the run: no refusal, but also no memoisation, no idempotency claim, and no snapshot. Keep steps on the run's own task, or copy the context and run them sequentially.
+3. **Passing Structureless Step Arguments:** An argument chowki cannot expand (a C extension object, an open socket) collapses to `<TypeName>` and logs `chowki_step_args_opaque`; two such instances then share an argument hash and can collide in the step cache. Pass a Struct, dataclass, model, or dict instead.
+4. **Assuming Redaction Obfuscates Non-UTF-8 Binary Blobs:** Passing API keys inside raw non-UTF-8 binary bytes objects (that fail UTF-8 decoding) bypasses regex redaction scanning.

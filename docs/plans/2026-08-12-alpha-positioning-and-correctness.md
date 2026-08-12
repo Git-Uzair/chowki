@@ -1112,7 +1112,11 @@ def _invoke_workflow(
 
 ## Task 7 — Raise on concurrent step entry instead of corrupting state
 
-**Status:** PENDING
+**Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: implement `step_guard` in `context.py` and wrap in `decorators.py` -> VERDICT FAIL (DISCREPANCY 1: `ChowkiConcurrencyError` caught by step breaker retry loop and converted to `ToolExecutionError`/`WorkflowPaused`; DISCREPANCY 2: `limits.md` overstated thread pool coverage and error type)
+- attempt 2: exempt `ChowkiConcurrencyError` from the breaker retry loop in both wrappers (it only surfaces *inside* the enclosing step's body, where the generic `except Exception` sat), four regression tests for the inside-a-step shapes, and `limits.md` rewritten to separate context-carrying concurrency (refused) from bare threads (unmanaged) -> full gate green
 **Difficulty:** HARD
 **Depends on:** Tasks 5 and 6 (same two files; sequencing avoids conflicting edits).
 **Goal:** two steps of one run running at the same time raise `ChowkiConcurrencyError`

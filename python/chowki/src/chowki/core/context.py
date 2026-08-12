@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from chowki.errors import ChowkiConcurrencyError
 from chowki.guardrails.budget import BudgetTracker
 from chowki.guardrails.loops import LoopDetector
 from chowki.types import JSONObject, PauseRequest, StepRecord, Usage
@@ -35,6 +38,21 @@ def _default_resumed_patches() -> dict[str, Patch]:
     return {}
 
 
+def _executor_id() -> tuple[int, int]:
+    """Identify the thread and task a step body is running on.
+
+    An asyncio task copies the context rather than the context *var*, so every task in a
+    `gather` sees the same RunContext object -- the identity of the running task is the
+    only thing that tells them apart. Outside a running loop there is no task and the
+    thread carries the whole identity.
+    """
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        task = None
+    return (threading.get_ident(), id(task) if task is not None else 0)
+
+
 @dataclass(slots=True)
 class RunContext:
     run_id: str
@@ -56,6 +74,9 @@ class RunContext:
     _counters: dict[str, int] = field(default_factory=_default_counters)
     _ordinal: int = 0
     _snapshot_index: int = 0
+    _step_owner: tuple[int, int] | None = None
+    _active_step: str | None = None
+    _step_depth: int = 0
 
     def __post_init__(self) -> None:
         self.loops = LoopDetector(self.engine.config.guardrails)
@@ -97,6 +118,36 @@ class RunContext:
         n = self._snapshot_index
         self._snapshot_index += 1
         return n
+
+    @contextmanager
+    def step_guard(self, step_name: str) -> Generator[None, None, None]:
+        """Refuse a second concurrent step in this run instead of corrupting its state.
+
+        Nesting is not concurrency: a step that calls another step runs on the same task
+        and thread, so the owner matches and only the depth grows. A different task or
+        thread entering while a step is live is the `asyncio.gather` case, and it is
+        refused before any ordinal is allocated or any record written.
+        """
+        owner = _executor_id()
+        if self._step_owner is not None and self._step_owner != owner:
+            raise ChowkiConcurrencyError(
+                f"step {step_name!r} of run {self.run_id} started while step "
+                f"{self._active_step!r} is still running. Concurrent steps within one run "
+                f"(asyncio.gather, asyncio.to_thread, thread pools) are not supported and "
+                f"would corrupt the run's snapshot chain: run the steps sequentially, or "
+                f"run independent workflow runs concurrently."
+            )
+        if self._step_owner is None:
+            self._step_owner = owner
+            self._active_step = step_name
+        self._step_depth += 1
+        try:
+            yield
+        finally:
+            self._step_depth -= 1
+            if self._step_depth == 0:
+                self._step_owner = None
+                self._active_step = None
 
 
 _CURRENT: ContextVar[RunContext | None] = ContextVar("chowki_run", default=None)

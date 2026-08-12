@@ -28,6 +28,17 @@ class ChowkiStorageError(ChowkiError): ...
 class ChowkiStateError(ChowkiError): ...
 
 
+class ChowkiConcurrencyError(ChowkiError):
+    """Two steps of one run tried to execute at the same time.
+
+    Not a transient failure: step ordinals and the RFC 6902 snapshot chain are both
+    strictly sequential per run, so the interleaving would have produced a state
+    document no resume can rebuild. Parallel steps within a run are Phase 6
+    (deterministic branch keys); until then, run steps sequentially or run independent
+    runs concurrently.
+    """
+
+
 class SchemaVersionError(ChowkiStateError): ...
 
 

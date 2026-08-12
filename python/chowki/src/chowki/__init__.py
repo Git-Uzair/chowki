@@ -10,6 +10,7 @@ from chowki.core.resume import aresume, rerun, resume
 from chowki.core.runner import pause, recover_runs, reissue_token, resumable_runs, workflow
 from chowki.errors import (
     BudgetExceeded,
+    ChowkiConcurrencyError,
     ChowkiError,
     HumanRejectedError,
     InfiniteLoopDetected,
@@ -52,6 +53,7 @@ def record_transition(src: str, dst: str) -> None:
 
 __all__ = [
     "BudgetExceeded",
+    "ChowkiConcurrencyError",
     "ChowkiConfig",
     "ChowkiError",
     "Decision",

@@ -66,7 +66,7 @@ matrix in sync.
 | Crash recovery | `recover_runs` re-arms RUNNING → PENDING (never FAILED) and returns incomplete runs; `resumable_runs` lists them. Re-invocation with the same `run_id` resumes with memoised steps. | 07 §5/§9 | ✅ | ⬜ |
 | Warm resume | Newest BASE + deltas reconstruct state; re-execution from the top with memoisation; snapshot indices always continue above stored max (replays never overwrite history). | 07 §8/§9 | ✅ | ⬜ |
 | Side-effect rule (R4) | Every side effect must live inside a step: resume re-executes the workflow body. Documented in API docs, quickstart, `AGENTS.md`. | [03-durable-execution](research/03-durable-execution.md) | ✅ | ⬜ |
-| Single-writer-per-run | Concurrency inside one run (gather/`Promise.all` over steps) is undefined behavior until Phase 6 branch keys. Must be documented loudly in Node. | 07 §13 | ✅ (documented) | ⬜ |
+| Single-writer-per-run | Concurrency inside one run (gather/`Promise.all` over steps) is refused at the second step's entry, before any ordinal is allocated: `ChowkiConcurrencyError`. Nesting (a step calling a step) is unaffected; parallel steps wait for Phase 6 branch keys. | 07 §13 | ✅ (enforced: `ChowkiConcurrencyError`) | ⬜ |
 | Workflow registry | Register workflows by name at decoration; `resume`/`rerun` resolve by name so callers don't pass function references. | 02-release T1 | ✅ | ⬜ |
 | Async-aware resume (`aresume`) | Awaitable resume for async workflows; sync `resume()` refuses coroutine workflows loudly instead of returning an unawaited coroutine (verified Phase 1 bug). | 02-release T2 | ✅ | ⬜ |
 | Parallel steps, child workflows, cancellation, timers, signals | Deliberately absent everywhere until designed once. | 07 §13 | 🔜 6 | 🔜 6 |

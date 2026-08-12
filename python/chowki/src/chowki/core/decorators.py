@@ -23,6 +23,7 @@ from chowki.config import ChowkiEngine, get_engine
 from chowki.core.context import RunContext, current_run, in_run
 from chowki.core.runner import pause, workflow
 from chowki.errors import (
+    ChowkiConcurrencyError,
     ChowkiStateError,
     ChowkiStorageError,
     HumanRejectedError,
@@ -413,35 +414,42 @@ def step(
                     res = await fn(*args, **kwargs)
                     return cast(R, res)
                 ctx = current_run()
-                rec, memoised = _begin(ctx, step_name, args, kwargs, idempotent)
-                if memoised is not _MISSING:
-                    return cast(R, memoised)
+                with ctx.step_guard(step_name):
+                    rec, memoised = _begin(ctx, step_name, args, kwargs, idempotent)
+                    if memoised is not _MISSING:
+                        return cast(R, memoised)
 
-                breaker = _get_breaker(ctx, retries)
-                initial_attempts = rec.attempts
-                attempt = 0
-                tracing_enabled = ctx.engine.config.tracing_enabled
-                while True:
-                    rec.attempts = initial_attempts + attempt + 1
-                    try:
-                        if tracing_enabled:
-                            with span_for_step(step_name):
+                    breaker = _get_breaker(ctx, retries)
+                    initial_attempts = rec.attempts
+                    attempt = 0
+                    tracing_enabled = ctx.engine.config.tracing_enabled
+                    while True:
+                        rec.attempts = initial_attempts + attempt + 1
+                        try:
+                            if tracing_enabled:
+                                with span_for_step(step_name):
+                                    res = await fn(*args, **kwargs)
+                            else:
                                 res = await fn(*args, **kwargs)
-                        else:
-                            res = await fn(*args, **kwargs)
-                        break
-                    except (WorkflowPaused, HumanRejectedError):
-                        raise
-                    except Exception as exc:
-                        action = _handle_step_exception(ctx, rec, exc, breaker, attempt)
-                        if action is BreakerAction.RETRY:
-                            await asyncio.sleep(breaker.backoff_seconds(attempt))
-                            attempt += 1
-                            continue
-                        raise
+                            break
+                        except (WorkflowPaused, HumanRejectedError, ChowkiConcurrencyError):
+                            # The first two are control flow, not failure. The third is a
+                            # nested step's guard refusing a second task or thread that
+                            # entered this run -- a permanent property of the calling code,
+                            # which the breaker would otherwise classify as a transient
+                            # ToolExecutionError, sleep through four backoffs, and convert
+                            # into an auto-pause that hides the real cause from the caller.
+                            raise
+                        except Exception as exc:
+                            action = _handle_step_exception(ctx, rec, exc, breaker, attempt)
+                            if action is BreakerAction.RETRY:
+                                await asyncio.sleep(breaker.backoff_seconds(attempt))
+                                attempt += 1
+                                continue
+                            raise
 
-                _succeed(ctx, rec, res, snapshot)
-                return cast(R, res)
+                    _succeed(ctx, rec, res, snapshot)
+                    return cast(R, res)
 
             return cast(Callable[P, R], async_wrapper)
         else:
@@ -451,35 +459,36 @@ def step(
                 if not in_run():
                     return fn(*args, **kwargs)
                 ctx = current_run()
-                rec, memoised = _begin(ctx, step_name, args, kwargs, idempotent)
-                if memoised is not _MISSING:
-                    return cast(R, memoised)
+                with ctx.step_guard(step_name):
+                    rec, memoised = _begin(ctx, step_name, args, kwargs, idempotent)
+                    if memoised is not _MISSING:
+                        return cast(R, memoised)
 
-                breaker = _get_breaker(ctx, retries)
-                initial_attempts = rec.attempts
-                attempt = 0
-                tracing_enabled = ctx.engine.config.tracing_enabled
-                while True:
-                    rec.attempts = initial_attempts + attempt + 1
-                    try:
-                        if tracing_enabled:
-                            with span_for_step(step_name):
+                    breaker = _get_breaker(ctx, retries)
+                    initial_attempts = rec.attempts
+                    attempt = 0
+                    tracing_enabled = ctx.engine.config.tracing_enabled
+                    while True:
+                        rec.attempts = initial_attempts + attempt + 1
+                        try:
+                            if tracing_enabled:
+                                with span_for_step(step_name):
+                                    res = fn(*args, **kwargs)
+                            else:
                                 res = fn(*args, **kwargs)
-                        else:
-                            res = fn(*args, **kwargs)
-                        break
-                    except (WorkflowPaused, HumanRejectedError):
-                        raise
-                    except Exception as exc:
-                        action = _handle_step_exception(ctx, rec, exc, breaker, attempt)
-                        if action is BreakerAction.RETRY:
-                            time.sleep(breaker.backoff_seconds(attempt))
-                            attempt += 1
-                            continue
-                        raise
+                            break
+                        except (WorkflowPaused, HumanRejectedError, ChowkiConcurrencyError):
+                            raise  # same three reasons as async_wrapper above
+                        except Exception as exc:
+                            action = _handle_step_exception(ctx, rec, exc, breaker, attempt)
+                            if action is BreakerAction.RETRY:
+                                time.sleep(breaker.backoff_seconds(attempt))
+                                attempt += 1
+                                continue
+                            raise
 
-                _succeed(ctx, rec, res, snapshot)
-                return res
+                    _succeed(ctx, rec, res, snapshot)
+                    return res
 
             return sync_wrapper
 

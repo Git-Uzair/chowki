@@ -15,6 +15,7 @@ def test_public_surface_is_exactly_as_documented() -> None:
     assert set(chowki.__all__) == {
         "__version__",
         "BudgetExceeded",
+        "ChowkiConcurrencyError",
         "ChowkiConfig",
         "ChowkiError",
         "Decision",

@@ -318,12 +318,22 @@ after a restart — supply a `resume_secret` in production.
 The following are known absences, not oversights. The Node SDK must ship **without**
 them, matching Python, until the owning roadmap phase designs them once for both SDKs:
 
-- **Concurrency inside one run** — `Promise.all`/`asyncio.gather` over steps is
-  UNDEFINED BEHAVIOR: step ordinals, the shared state dict, and the linear delta chain
-  all assume one step at a time. Single-writer-per-run, one task at a time, is the
-  contract. Parallel steps need deterministic branch keys (Phase 6). Document this
-  loudly in the Node README — `Promise.all` is far more idiomatic there than `gather`
-  is in Python, so Node users will hit it first.
+- **Concurrency inside one run** — `Promise.all`/`asyncio.gather` over steps stays
+  unbuilt: step ordinals, the shared state dict, and the linear delta chain all assume
+  one step at a time. Single-writer-per-run, one task at a time, is the contract, and
+  *detection is normative*: an SDK MUST refuse a second concurrent step entry within a
+  run rather than leave the behaviour undefined. Python raises
+  `ChowkiConcurrencyError` from the step wrapper, before any ordinal is allocated or
+  any record is written; the Node port must raise its equivalent at the same point.
+  The refusal is permanent, so it MUST bypass the anomaly breaker: retrying it or
+  converting it into an auto-pause would hide a programming error behind a transient
+  one.
+  Nesting (a step calling a step) is not concurrency and MUST keep working — the check
+  is on the executing task/thread identity, not on step depth, so a step offloaded to
+  another thread from inside a step is refused as well (a documented false positive).
+  Parallel steps need deterministic branch keys (Phase 6). Document this loudly in the
+  Node README — `Promise.all` is far more idiomatic there than `gather` is in Python,
+  so Node users will hit it first.
 - **Durable timers / sleep, external signals or events** waking a run (the only wake
   paths are human decisions and re-invocation) — Phase 6.
 - **Child workflows, cancellation (`cancel_run`), run-listing/query API beyond
