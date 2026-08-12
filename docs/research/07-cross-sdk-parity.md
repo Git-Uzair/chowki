@@ -98,8 +98,8 @@ Schema-version unseal order: version check → integrity hash check → decode �
   Decimals) → `model_dump` (Pydantic, duck-typed, never imported) → `__dict__`
   (ordinary objects, non-empty only) → `f"<{TypeName}>"` marker. Every expansion is
   re-sanitized by `S` and wrapped as `{f"<{TypeName}>": expansion}`, so a Struct never
-  hashes identically to a plain dict with equal fields. Two ordering rules are
-  normative, not incidental: **(1)** field unpacking MUST precede any whole-object
+  hashes identically to a plain dict with equal fields. Three rules are normative,
+  not incidental: **(1)** field unpacking MUST precede any whole-object
   conversion and MUST be shallow, so an unordered collection in a field reaches `S` as
   a set and is put in `S`'s total order rather than in the host runtime's iteration
   order (Python: `PYTHONHASHSEED` salts that order, so the resume key would otherwise

@@ -179,7 +179,14 @@ def _hashes_under_seed(probe: str, seed: str) -> list[str]:
         check=True,
         env=env,
     )
-    return proc.stdout.split()
+    # A probe whose argument collapses also logs a *timestamped* warning on stdout, and
+    # two subprocesses either side of a second boundary print different timestamps. Only
+    # the printed hashes may reach the comparison, or the test fails on the clock.
+    hashes = [
+        line.strip() for line in proc.stdout.splitlines() if line.strip().startswith("sha256:")
+    ]
+    assert hashes, f"probe printed no hash: {proc.stdout!r}"
+    return hashes
 
 
 @pytest.fixture

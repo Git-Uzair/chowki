@@ -479,11 +479,12 @@ thing. Changing one without the others is the drift this section exists to preve
 ## Task 5 — Structural argument hashing (the `<TypeName>` collapse is a correctness bug)
 
 **Status:** COMPLETED
-**Failed Verify Cycles:** 2
+**Failed Verify Cycles:** 3
 **Attempt Ledger:**
 - attempt 1: implement `_expand` using `to_builtins` -> `model_dump` -> `__dict__` -> VERDICT FAIL (DISCREPANCY 1: set/frozenset inside Struct/dataclass converted by `to_builtins` to list with process-dependent iteration order; DISCREPANCY 2: `getattr(val, "model_dump", None)` raises non-AttributeError in `__getattr__`)
 - attempt 2: shallow field unpacking for Structs and dataclasses before `to_builtins`, try/except Exception on attribute probes -> VERDICT FAIL (DISCREPANCY 3: deep chain of 500 plain objects raises RecursionError instead of collapsing to `<TypeName>` marker with `chowki_step_args_opaque` warning)
-- attempt 3 (opus-coder): keep attempt 2's expansion, add a deterministic depth cap (`_MAX_DEPTH = 100`, measured by `len(seen)`, the path depth `_sanitize` already tracks) that collapses to the marker before recursing further; deliberately *not* `except RecursionError`, which would make the hash depend on the caller's remaining stack -> COMPLETED
+- attempt 3: bound expansion depth at `_MAX_DEPTH = 100` in `_sanitize` -> VERDICT FAIL (TEST audit line: `test_deep_object_chains_hash_identically_in_a_fresh_process` compares stdout split including timestamped warning line; DISCREPANCY: parity doc claims "Two ordering rules" followed by 3 rules)
+- attempt 4 (opus-coder): keep attempt 3's depth cap; `_hashes_under_seed` now compares only the `sha256:` lines of the probe's stdout (asserting at least one) instead of every whitespace-separated token, so the structlog warning's timestamp cannot enter the comparison; parity doc now says "Three rules are normative" -> COMPLETED
 **Difficulty:** HARD
 **Goal:** two different instances of the same complex class produce different
 `args_hash` values, so a step never replays another call's memoised result; anything
