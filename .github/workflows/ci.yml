@@ -9,9 +9,6 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  UV_FROZEN: "1"
-
 jobs:
   static:
     name: Lint and static analysis
