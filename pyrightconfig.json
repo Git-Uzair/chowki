@@ -1,5 +1,6 @@
 {
   "include": ["python/chowki/src", "python/chowki/tests", "scripts"],
+  "extraPaths": ["scripts"],
   "exclude": ["**/__pycache__", "**/.venv", "node", "dist", "build"],
   "pythonVersion": "3.11",
   "typeCheckingMode": "strict",
