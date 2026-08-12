@@ -30,13 +30,14 @@ By default, `chowki` uses SQLite with Write-Ahead Logging (WAL) enabled:
 
 ---
 
-## 4. `<TypeName>` Argument Hash Collapse
+## 4. Argument Hashing of Complex Objects
 
 When computing step idempotency keys, `chowki` hashes step input arguments using a deterministic sanitizer:
 - Standard primitive arguments (`None`, `bool`, `int`, `float`, `str`), dictionaries, sets, and sequences (`list`, `tuple`) are sanitized and hashed by value.
-- Complex objects (like `msgspec.Struct` instances, Pydantic models, or custom class instances) are not expanded by the sanitizer and collapse to `<TypeName>` (e.g., `<MyStruct>`, `<UserModel>`).
-- **Impact:** Passing two different instances of a `msgspec.Struct` or Pydantic model with the same class name as step arguments will collapse to the same `<TypeName>` string in the argument hash.
-- **Best Practice:** To ensure distinct step argument hashes when using complex objects, pass primitive values, dicts, or convert models to dictionaries (e.g., `msgspec.structs.asdict(obj)` or `model.model_dump()`) before passing them to `@chowki.step`.
+- Complex objects are expanded structurally and hashed by value too: `msgspec.Struct` instances and dataclasses field by field; attrs classes, enums, `bytes`, `datetime`, `UUID` and `Decimal` values via `msgspec.to_builtins`; Pydantic models via their `model_dump()`; ordinary class instances via their `__dict__`. Each expansion is hashed under a `{"<TypeName>": ...}` wrapper, so a `Struct` never hashes identically to a plain dict with the same fields. A `set` or `frozenset` held in a field stays a set through the expansion and is sorted into a total order, so the hash of a Struct or dataclass argument is the same in the process that resumes the run as it was in the process that started it.
+- **Only a value with no exposable structure** (a C extension object, an open socket, a bare `object()`) collapses to a `<TypeName>` marker. When that happens the step logs `chowki_step_args_opaque` with the `run_id`, the `step_id`, and the offending type names.
+- **Impact:** Two different instances of a collapsed type share an argument hash, so a memoised result can replay for logically different arguments. The warning is the signal that a step is exposed to that.
+- **Best Practice:** Pass something with structure — a Struct, dataclass, model, or dict — instead of an opaque object. Note that an object holding per-process values (a connection id, a socket handle) hashes differently in a recovering process, which costs a cache miss on resume rather than a wrong answer.
 
 ---
 
@@ -68,5 +69,5 @@ Always treat secret redaction as an additional layer of security rather than a r
 ## What Can Go Wrong
 
 1. **Running `asyncio.gather()` Over Steps:** Wrapping `@chowki.step` functions in `asyncio.gather()` causes state delta corruption or race conditions. Run steps sequentially within a workflow, or run independent workflows concurrently.
-2. **Passing Un-serializable Step Arguments:** Depending on `<TypeName>` argument hash collapse for custom object instances can cause step cache collisions if argument values differ but their class names match.
+2. **Passing Structureless Step Arguments:** An argument chowki cannot expand (a C extension object, an open socket) collapses to `<TypeName>` and logs `chowki_step_args_opaque`; two such instances then share an argument hash and can collide in the step cache. Pass a Struct, dataclass, model, or dict instead.
 3. **Assuming Redaction Obfuscates Non-UTF-8 Binary Blobs:** Passing API keys inside raw non-UTF-8 binary bytes objects (that fail UTF-8 decoding) bypasses regex redaction scanning.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import dataclasses
 import functools
 import hashlib
 import hmac
@@ -14,6 +16,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Final, ParamSpec, TypeVar, cast, overload
 
+import msgspec
 import structlog
 
 from chowki.config import ChowkiEngine, get_engine
@@ -35,12 +38,67 @@ from chowki.types import JSONValue, StepError, StepRecord, StepStatus
 _UNSERIALIZABLE: Final = "__chowki_unserializable__"
 _MISSING: Final = object()
 _CYCLE: Final = "<cycle>"
+_OPAQUE: Final = object()
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def _signature(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+def _expand(val: object) -> Any:
+    """Return a JSON-shaped expansion of a complex value, or ``_OPAQUE``.
+
+    Structs and dataclasses are unpacked field by field *before* ``to_builtins`` sees
+    them, and only one level deep: ``to_builtins`` would convert a ``set`` field to a
+    list in this process' set iteration order, which ``PYTHONHASHSEED`` salts, so the
+    resume key would move on every restart. Left as a set, ``_sanitize`` recurses into
+    the fields and sorts it into a total order instead.
+
+    ``to_builtins`` then covers what has no sets to lose -- attrs classes, enums, bytes
+    (base64), datetimes, UUIDs, Decimals -- in one C-accelerated call, and comes before
+    ``__dict__`` because an enum member's ``__dict__`` holds enum machinery (including
+    its own class) rather than its value. ``model_dump`` covers Pydantic without
+    importing it and ``__dict__`` covers ordinary classes; both are read defensively,
+    because a lazy proxy is free to raise anything at all from ``__getattr__`` and an
+    argument must never kill the step it describes.
+
+    Only a value none of those describes falls back to a type marker, and ``_begin``
+    warns when that happens: the silent version of that fallback is what let two
+    different instances of one class share an args_hash and replay each other's
+    memoised result.
+    """
+    if isinstance(val, msgspec.Struct):
+        with contextlib.suppress(Exception):
+            return msgspec.structs.asdict(val)
+    if dataclasses.is_dataclass(val) and not isinstance(val, type):
+        with contextlib.suppress(Exception):
+            return {f.name: getattr(val, f.name) for f in dataclasses.fields(val)}
+    with contextlib.suppress(TypeError, ValueError, RecursionError):
+        return msgspec.to_builtins(val, str_keys=True)
+    try:
+        # Any error from the probe itself means "no structure available here", never
+        # "abort the step": a lazy proxy raises ValueError for an unresolvable
+        # reference just as readily as AttributeError for a missing one.
+        dump = getattr(val, "model_dump", None)
+    except Exception:
+        dump = None
+    if callable(dump):
+        with contextlib.suppress(Exception):
+            return dump()
+    try:
+        attrs = getattr(val, "__dict__", None)
+    except Exception:  # same reason as the model_dump probe above
+        attrs = None
+    if isinstance(attrs, dict) and attrs:
+        return dict(cast("dict[str, Any]", attrs))
+    return _OPAQUE
+
+
+def _signature(
+    name: str,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    opaque: list[str],
+) -> dict[str, Any]:
     """Reduce a call to a JSON-shaped description whose content hash is a resume key.
 
     The hash has to be identical in the process that resumes a run, so nothing that
@@ -54,6 +112,11 @@ def _signature(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict
     the hasher rejects would abort the step before it ever starts. The two values it
     refuses -- non-finite floats and keys that collide once NFC-normalized -- are folded
     into a marker and a normalized key here.
+
+    Complex values are expanded structurally by :func:`_expand` and hashed by value, so
+    two instances of one class no longer share a hash. Only a value with no exposable
+    structure at all collapses to a ``<TypeName>`` marker; its type name is appended to
+    ``opaque`` so the caller can report which arguments lost their identity.
     """
 
     def _sanitize(val: object, seen: frozenset[int]) -> Any:
@@ -77,7 +140,14 @@ def _signature(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict
         if isinstance(val, (list, tuple)):
             seq = cast(Sequence[object], val)
             return [_sanitize(x, inner) for x in seq]
-        return f"<{type(val).__name__}>"
+        expanded = _expand(val)
+        type_name = type(val).__name__
+        if expanded is _OPAQUE:
+            opaque.append(type_name)
+            return f"<{type_name}>"
+        # Keyed by the type name so a Struct never hashes identically to an equal plain
+        # dict, and re-sanitized because `model_dump`/`__dict__` can return anything.
+        return {f"<{type_name}>": _sanitize(expanded, inner)}
 
     empty: frozenset[int] = frozenset()
     return {
@@ -104,8 +174,19 @@ def _begin(
 
     step_id = ctx.next_step_id(name)
     ordinal = ctx.next_ordinal()
-    sig = _signature(name, args, kwargs)
+    opaque_types: list[str] = []
+    sig = _signature(name, args, kwargs, opaque_types)
     args_hash = content_hash(sig)
+    if opaque_types:
+        # A collapsed type means two different instances share this hash, so a memoised
+        # result can replay for logically different arguments. Naming the type is what
+        # lets the caller fix it by passing something with structure.
+        structlog.get_logger().warning(
+            "chowki_step_args_opaque",
+            step_id=step_id,
+            run_id=ctx.run_id,
+            types=sorted(set(opaque_types)),
+        )
 
     existing = ctx.engine.storage.get_step(ctx.run_id, step_id)
     # A record on its own only proves that some attempt *started*. Only COMPLETED with

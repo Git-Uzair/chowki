@@ -478,7 +478,11 @@ thing. Changing one without the others is the drift this section exists to preve
 
 ## Task 5 — Structural argument hashing (the `<TypeName>` collapse is a correctness bug)
 
-**Status:** PENDING
+**Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: implement `_expand` using `to_builtins` -> `model_dump` -> `__dict__` -> VERDICT FAIL (DISCREPANCY 1: set/frozenset inside Struct/dataclass converted by `to_builtins` to list with process-dependent iteration order; DISCREPANCY 2: `getattr(val, "model_dump", None)` raises non-AttributeError in `__getattr__`)
+- attempt 2: unpack Structs/dataclasses field by field (`structs.asdict` / `dataclasses.fields`) *before* `to_builtins`, so a set field reaches `_sanitize` as a set and is put in its total order; keep `to_builtins` ahead of `model_dump`/`__dict__` (an enum member's `__dict__` is enum machinery, not its value) and read both attribute probes under `except Exception` -> COMPLETED
 **Difficulty:** HARD
 **Goal:** two different instances of the same complex class produce different
 `args_hash` values, so a step never replays another call's memoised result; anything

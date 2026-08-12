@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
+import enum
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import msgspec
 import pytest
+from structlog.testing import capture_logs
 
 from chowki.config import ChowkiEngine
 from chowki.core.context import RunContext, run_scope
@@ -37,6 +41,46 @@ with run_scope(ctx):
     fanout({"alpha", "beta", "gamma", "delta", "epsilon", "zeta"})
 record = engine.storage.get_step("p", "fanout#0")
 print(record.args_hash)
+"""
+
+
+#: Same proof one level down: the sets are *fields of* a Struct and of a dataclass, which
+#: is where an expansion that converts them to lists too early bakes the process-local
+#: iteration order into the resume key.
+_COMPLEX_HASH_PROBE = """
+import dataclasses
+
+import msgspec
+
+from chowki.config import ChowkiConfig, ChowkiEngine
+from chowki.core.context import RunContext, run_scope
+from chowki.core.decorators import step
+from chowki.storage.memory import MemoryStorage
+
+TAGS = frozenset({"alpha", "beta", "gamma", "delta", "epsilon", "zeta"})
+
+
+class Invoice(msgspec.Struct):
+    tags: frozenset[str]
+
+
+@dataclasses.dataclass
+class Order:
+    tags: frozenset[str]
+
+
+@step
+def handle(payload):
+    return 1
+
+
+engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage()))
+ctx = RunContext(run_id="p", workflow="w", engine=engine)
+with run_scope(ctx):
+    handle(Invoice(tags=TAGS))
+    handle(Order(tags=TAGS))
+print(engine.storage.get_step("p", "handle#0").args_hash)
+print(engine.storage.get_step("p", "handle#1").args_hash)
 """
 
 
@@ -93,16 +137,16 @@ def _crash_resume_phase(db: Path, effects: Path, phase: str) -> subprocess.Compl
     )
 
 
-def _args_hash_under_seed(seed: str) -> str:
+def _hashes_under_seed(probe: str, seed: str) -> list[str]:
     env = {**os.environ, "PYTHONHASHSEED": seed}
     proc = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", _ARGS_HASH_PROBE],
+        [sys.executable, "-c", probe],
         capture_output=True,
         text=True,
         check=True,
         env=env,
     )
-    return proc.stdout.strip()
+    return proc.stdout.split()
 
 
 @pytest.fixture
@@ -365,7 +409,21 @@ def test_unserializable_results_do_not_break_the_run(ctx: RunContext) -> None:
 
 def test_set_arguments_hash_identically_in_a_fresh_process() -> None:
     """The resume key must not move when PYTHONHASHSEED reorders a set argument."""
-    assert _args_hash_under_seed("1") == _args_hash_under_seed("424242")
+    assert _hashes_under_seed(_ARGS_HASH_PROBE, "1") == _hashes_under_seed(
+        _ARGS_HASH_PROBE, "424242"
+    )
+
+
+def test_sets_inside_complex_arguments_hash_identically_in_a_fresh_process() -> None:
+    """Same guarantee for a set that is a *field* of a Struct or of a dataclass.
+
+    Expanding those with ``to_builtins`` turns the field into a list in this process'
+    set iteration order, which is salted by PYTHONHASHSEED -- the resume key would then
+    move under the run every time the process restarts.
+    """
+    assert _hashes_under_seed(_COMPLEX_HASH_PROBE, "1") == _hashes_under_seed(
+        _COMPLEX_HASH_PROBE, "424242"
+    )
 
 
 def test_self_referential_arguments_do_not_recurse(ctx: RunContext) -> None:
@@ -574,3 +632,169 @@ def test_step_does_not_retry_a_loop_detection(ctx: RunContext) -> None:
         looping()
     assert len(attempts) == 1
     assert getattr(exc_info.value, "chowki_action", None) is BreakerAction.PAUSE
+
+
+class _Invoice(msgspec.Struct):
+    invoice_id: str
+    amount: int
+
+
+@dataclasses.dataclass
+class _Order:
+    order_id: str
+
+
+class _FakeModel:
+    """Stands in for a Pydantic model without adding the dependency: chowki reaches for
+    ``model_dump`` by duck typing, exactly as it would on a real BaseModel."""
+
+    def __init__(self, ref: str) -> None:
+        self.ref = ref
+
+    def model_dump(self) -> dict[str, object]:
+        return {"ref": self.ref}
+
+
+class _Plain:
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+
+
+class _Channel(enum.Enum):
+    EMAIL = "email"
+    SMS = "sms"
+
+
+class _Hostile:
+    """A lazy proxy of the kind ORMs and client SDKs hand out: every attribute chowki
+    might probe for goes through ``__getattr__``, and this one refuses with a
+    ``ValueError`` (a detached session, an unresolvable reference) instead of an
+    ``AttributeError``. Hashing must survive it. ``__slots__`` is what routes the
+    ``__dict__`` probe through ``__getattr__`` as well."""
+
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> object:
+        raise ValueError(f"cannot resolve {name!r}")
+
+
+def _hash_of(ctx: RunContext, step_id: str) -> str:
+    record = ctx.engine.storage.get_step(ctx.run_id, step_id)
+    assert record is not None
+    return record.args_hash
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (_Invoice(invoice_id="inv-1", amount=1), _Invoice(invoice_id="inv-999", amount=1)),
+        (_Order(order_id="o-1"), _Order(order_id="o-2")),
+        (_FakeModel("a"), _FakeModel("b")),
+        (_Plain("a"), _Plain("b")),
+    ],
+    ids=["struct", "dataclass", "pydantic-like", "plain-object"],
+)
+def test_different_instances_of_one_class_hash_differently(
+    ctx: RunContext, first: object, second: object
+) -> None:
+    """The Phase 1 collapse made these identical, so the second call replayed the first's
+    memoised result -- a wrong answer, not a slow one (POSITIONING.md:223-232)."""
+    seen: list[object] = []
+
+    @step
+    def handle(payload: object) -> str:
+        seen.append(payload)
+        return "done"
+
+    with run_scope(ctx):
+        handle(first)
+        handle(second)
+
+    assert len(seen) == 2
+    assert _hash_of(ctx, "handle#0") != _hash_of(ctx, "handle#1")
+
+
+def test_equal_complex_arguments_still_memoise(ctx: RunContext) -> None:
+    """Structural hashing must not break the memoisation it exists to make trustworthy."""
+    calls: list[int] = []
+
+    @step
+    def handle(payload: _Invoice) -> str:
+        calls.append(1)
+        return "done"
+
+    with run_scope(ctx):
+        handle(_Invoice(invoice_id="inv-1", amount=10))
+
+    replay = RunContext(run_id=ctx.run_id, workflow=ctx.workflow, engine=ctx.engine)
+    with run_scope(replay):
+        assert handle(_Invoice(invoice_id="inv-1", amount=10)) == "done"
+
+    assert calls == [1]
+
+
+def test_a_struct_does_not_collide_with_an_equal_dict(ctx: RunContext) -> None:
+    @step
+    def handle(payload: object) -> str:
+        return "done"
+
+    with run_scope(ctx):
+        handle(_Invoice(invoice_id="inv-1", amount=10))
+        handle({"invoice_id": "inv-1", "amount": 10})
+
+    assert _hash_of(ctx, "handle#0") != _hash_of(ctx, "handle#1")
+
+
+def test_an_unexpandable_argument_warns_instead_of_collapsing_silently(
+    ctx: RunContext,
+) -> None:
+    """``object()`` has no structure to hash. It still collapses -- loudly."""
+
+    @step
+    def handle(payload: object) -> str:
+        return "done"
+
+    with capture_logs() as logs, run_scope(ctx):
+        handle(object())
+
+    events = [entry for entry in logs if entry["event"] == "chowki_step_args_opaque"]
+    assert events, "an opaque argument type must be reported"
+    assert events[0]["types"] == ["object"]
+    assert events[0]["step_id"] == "handle#0"
+
+
+def test_an_argument_whose_getattr_raises_collapses_instead_of_killing_the_step(
+    ctx: RunContext,
+) -> None:
+    """Probing an argument for structure must never abort the step it is describing."""
+
+    @step
+    def handle(payload: object) -> str:
+        return "done"
+
+    with capture_logs() as logs, run_scope(ctx):
+        assert handle(_Hostile()) == "done"
+
+    events = [entry for entry in logs if entry["event"] == "chowki_step_args_opaque"]
+    assert events, "an argument that refuses every probe must be reported"
+    assert events[0]["types"] == ["_Hostile"]
+
+
+def test_enum_arguments_hash_by_value_without_a_warning(ctx: RunContext) -> None:
+    """An enum member has structure -- its value -- so it must not be reported opaque.
+
+    An enum instance also carries a non-empty ``__dict__`` full of enum machinery
+    (``__objclass__`` is the class itself), so expanding objects generically before
+    asking msgspec would turn every enum argument into a false collapse warning.
+    """
+
+    @step
+    def handle(payload: object) -> str:
+        return "done"
+
+    with capture_logs() as logs, run_scope(ctx):
+        handle(_Channel.EMAIL)
+        handle(_Channel.SMS)
+
+    assert _hash_of(ctx, "handle#0") != _hash_of(ctx, "handle#1")
+    assert [entry for entry in logs if entry["event"] == "chowki_step_args_opaque"] == []

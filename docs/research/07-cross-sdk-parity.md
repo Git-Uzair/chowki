@@ -92,12 +92,30 @@ Schema-version unseal order: version check → integrity hash check → decode �
   sets/frozensets → array sorted by the `repr` of the sanitized member (Node: define
   an equivalent total order in `spec/v1` — e.g. sort by canonical JSON of the member);
   non-finite floats → `"<float>"`-style type markers; container cycles → `"<cycle>"`;
-  **any other type → `f"<{TypeName}>"`**.
-- **`<TypeName>` collapse caveat:** two different instances of the same non-JSON class
-  hash identically, so a memoised result can replay for logically different arguments.
-  This is accepted Phase 1 behavior; SDKs SHOULD warn in docs and MAY offer a strict
-  mode / user-supplied serializer later. A COMPLETED record whose stored `args_hash`
-  differs from the current call logs a warning and re-executes.
+  **any other type → expanded structurally, in this normative order:** shallow
+  field-by-field unpacking of Structs and dataclasses (`structs.asdict` /
+  `dataclasses.fields`) → `to_builtins` (attrs, enums, bytes, datetimes, UUIDs,
+  Decimals) → `model_dump` (Pydantic, duck-typed, never imported) → `__dict__`
+  (ordinary objects, non-empty only) → `f"<{TypeName}>"` marker. Every expansion is
+  re-sanitized by `S` and wrapped as `{f"<{TypeName}>": expansion}`, so a Struct never
+  hashes identically to a plain dict with equal fields. Two ordering rules are
+  normative, not incidental: **(1)** field unpacking MUST precede any whole-object
+  conversion and MUST be shallow, so an unordered collection in a field reaches `S` as
+  a set and is put in `S`'s total order rather than in the host runtime's iteration
+  order (Python: `PYTHONHASHSEED` salts that order, so the resume key would otherwise
+  move on every process restart); **(2)** whole-object conversion MUST precede
+  attribute scraping, because an enum member's attribute table holds enum machinery
+  (including its own class) instead of its value. Attribute probes MUST swallow *any*
+  error a lazy proxy raises and fall through to the marker. The Node SDK MUST reproduce
+  the same wrapper shape and the same expansion order (its equivalents: class fields →
+  `toJSON` → plain-object conversion → own enumerable properties → marker).
+- **`<TypeName>` collapse caveat:** only a value none of those steps can describe (a C
+  extension object, a socket) collapses. Two instances of such a type still hash
+  identically, so a memoised result can replay for logically different arguments —
+  therefore SDKs MUST log a warning naming the run, the step and the sorted collapsed
+  type names (Python: `chowki_step_args_opaque`) rather than collapsing silently. A
+  COMPLETED record whose stored `args_hash` differs from the current call logs a warning
+  and re-executes.
 - Memoisation: only a COMPLETED record with equal `args_hash` and
   `result_replayable=true` short-circuits; its stored result (MessagePack) is decoded
   and returned. `result_replayable=false` (result was not encodable; a diagnostic
