@@ -147,6 +147,9 @@ Runnable examples for each, in
 | **OpenAI Agents SDK** | [`openai_agents_refund.py`](https://github.com/Git-Uzair/chowki/blob/main/examples/python/integrations/openai_agents_refund.py) | `@function_tool` + durable steps; usage reported per turn |
 | **Pydantic AI** | [`pydantic_ai_refund.py`](https://github.com/Git-Uzair/chowki/blob/main/examples/python/integrations/pydantic_ai_refund.py) | Typed tools stay typed; gate rides on `RunContext` deps |
 | **No framework** | [`anthropic_tool_loop.py`](https://github.com/Git-Uzair/chowki/blob/main/examples/python/integrations/anthropic_tool_loop.py) | A hand-written Claude tool loop, made durable |
+| **Slack approvals** *(a channel, not a framework)* | [`slack_approvals.py`](https://github.com/Git-Uzair/chowki/blob/main/examples/python/integrations/slack_approvals.py) | Gate arrives in Slack; an HMAC-verified click resumes the run over HTTP |
+
+> **Slack is a worked example, not a shipped adapter.** A first-party Slack gateway is roadmap Phase 4. `slack_approvals.py` is what you write today against extension points that exist now — `ConsoleGateway` implements the same protocol, and `PauseNotice` caps the token below Slack's button limit on purpose.
 
 > **Scope, honestly:** chowki memoises what you decorate. Model calls made *inside* a
 > framework's own loop are re-issued on resume unless you wrap them too — each example

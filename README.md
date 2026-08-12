@@ -77,6 +77,9 @@ Runnable examples: **[`examples/python/integrations/`](examples/python/integrati
 | OpenAI Agents SDK | [`openai_agents_refund.py`](examples/python/integrations/openai_agents_refund.py) |
 | Pydantic AI | [`pydantic_ai_refund.py`](examples/python/integrations/pydantic_ai_refund.py) |
 | No framework (Claude tool loop) | [`anthropic_tool_loop.py`](examples/python/integrations/anthropic_tool_loop.py) |
+| Slack approvals — a *channel*, not a framework | [`slack_approvals.py`](examples/python/integrations/slack_approvals.py) |
+
+The Slack one integrates a *channel* rather than a framework: a gate arrives as Approve/Reject buttons carrying the resume token, and the click comes back to an endpoint that verifies Slack's signature and resumes the run. **A first-party Slack adapter is roadmap Phase 4 and not shipped** — that example is what you write today, on extension points (`ChannelGateway.notify` / `verify_ingress` / `parse_action`) that exist now.
 
 Standalone showcases, no API key required:
 
