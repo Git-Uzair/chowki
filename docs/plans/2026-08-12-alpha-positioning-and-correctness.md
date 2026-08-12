@@ -411,7 +411,7 @@ keywords = [
 
 ## Task 4 — Record the GitHub About box, topics, and naming rule
 
-**Status:** PENDING
+**Status:** COMPLETED
 **Difficulty:** EASY
 **Independent of Tasks 1-3 and 5-7 except for the shared summary string in Task 3 — safe
 to parallelise with Task 5.**

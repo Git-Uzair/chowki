@@ -273,3 +273,7 @@ def test_launch_checklist_content() -> None:
     assert "-m" in content or "--module" in content
     assert "chowki -m" in content
     assert "Slack Socket Mode" in content
+    assert "## Repository Metadata (maintainer actions, GitHub settings)" in content
+    assert "Durable execution for LLM agents" in content
+    for topic in ("durable-execution", "human-in-the-loop", "langgraph", "llmops"):
+        assert topic in content

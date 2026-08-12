@@ -62,6 +62,36 @@ Phase 4 opens with native Slack Socket Mode channel gateway integration, enablin
 
 ---
 
+## Repository Metadata (maintainer actions, GitHub settings)
+
+These are GitHub repository settings, not files. They are recorded here so the strings
+are reviewed and versioned; applying them is a manual maintainer step.
+
+**About box** (indexed, and what renders in GitHub search results):
+
+> Durable execution for LLM agents — crash recovery, step memoization, human approval
+> gates, secret redaction, and token budgets. Decorators, not infrastructure. No server,
+> SQLite-backed.
+
+**Topics** (GitHub caps at 20):
+
+`durable-execution` `crash-recovery` `idempotency` `exactly-once` `human-in-the-loop`
+`approval-workflow` `audit-log` `guardrails` `circuit-breaker` `llm` `ai-agents`
+`agents` `llmops` `langchain` `langgraph` `crewai` `sqlite` `python`
+`workflow-engine` `observability`
+
+**Naming rule.** "chowki" collides with furniture, South Asian place names, and *police
+chowki*, so the bare name will not rank. Never ship it alone: use
+`chowki — durable execution for LLM agents` in the About box, the PyPI summary, the
+README masthead area, the social card, and any launch post title. The descriptor phrase
+does the ranking and the disambiguation.
+
+**Alignment invariant.** The About box, the PyPI `description` in
+`python/chowki/pyproject.toml`, and the first screen of both READMEs must say the same
+thing. Changing one without the others is the drift this section exists to prevent.
+
+---
+
 ## Pre-Launch Checklist
 
 - [x] All Phase 1 and Phase 2 unit and integration tests passing (`pytest python/chowki/tests`)
