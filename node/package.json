@@ -1,0 +1,45 @@
+{
+  "name": "chowki",
+  "version": "0.0.1",
+  "description": "Placeholder for the Node/TypeScript SDK of chowki — in-process agent state preservation, guardrails, and warm resume. The Python SDK is available on PyPI today.",
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "durable-execution",
+    "human-in-the-loop",
+    "guardrails",
+    "workflow",
+    "state"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/Git-Uzair/chowki#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Git-Uzair/chowki.git",
+    "directory": "node"
+  },
+  "bugs": {
+    "url": "https://github.com/Git-Uzair/chowki/issues"
+  },
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
