@@ -303,8 +303,7 @@ To call your function again, it needs the arguments. And it does not have them:
 
 ```python
 # python/chowki/src/chowki/core/resume.py
-def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any:
-    ...
+def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any: ...
 ```
 
 `resume()` and `rerun()` invoke the workflow as `workflow_fn(run_id=run_id)`. That keyword is
@@ -315,10 +314,11 @@ So this workflow can be started but never resumed:
 
 ```python
 @chowki.workflow
-def billing_agent(invoice_id: str) -> str:      # required parameter, no default
+def billing_agent(invoice_id: str) -> str:  # required parameter, no default
     return pay_invoice(fetch_invoice(invoice_id))
 
-billing_agent(invoice_id="inv-999", run_id="run-1")   # runs, then pauses at the gate
+
+billing_agent(invoice_id="inv-999", run_id="run-1")  # runs, then pauses at the gate
 chowki.resume(run_id="run-1", token=token, decision=chowki.Decision.APPROVE)
 # TypeError: billing_agent() missing 1 required positional argument: 'invoice_id'
 ```
@@ -375,9 +375,9 @@ only trust the parameter on the first execution:
 def billing_agent(invoice_id: str | None = None) -> str:
     state = chowki.current_run().state
 
-    if invoice_id is not None:          # first execution: record the input
+    if invoice_id is not None:  # first execution: record the input
         state["invoice_id"] = invoice_id
-    invoice_id = state["invoice_id"]    # resume: read it back from the snapshot
+    invoice_id = state["invoice_id"]  # resume: read it back from the snapshot
 
     return pay_invoice(fetch_invoice(invoice_id))
 ```
