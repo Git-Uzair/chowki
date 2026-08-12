@@ -80,6 +80,59 @@ This matters most when an agent framework owns the loop. The framework decides *
 
 If you hit the error on a run that is already stuck, the escape hatches named in the message apply: `chowki.release_step(run_id, step_id)` if the side effect did **not** happen, or `chowki.complete_step(...)` to record it if it did.
 
+### Addressing the Notice: `channel` and `reviewers`
+
+`chowki.pause()` takes two more arguments than the examples above use:
+
+```python
+chowki.pause(
+    reason="Refund over $1,000 needs a human",
+    payload={"order_id": "ord-4417", "amount": 1_240.00},
+    permitted_actions=("APPROVE", "REJECT", "EDIT"),
+    reviewers=("U12345", "payments-oncall@example.com"),  # who should be asked
+    channel="slack",  # where to ask them
+)
+```
+
+Both are recorded on the `PauseRequest` and delivered to your gateway on the `PauseNotice` as `notice.reviewers` and `notice.channel`. Both survive a restart: a resumed run reads them back off the stored request rather than from the process that paused.
+
+> **What chowki does not do with `channel` — read this before relying on it.**
+>
+> `chowki` **carries** these values; it does not route on them. There is no dispatch table mapping `"slack"` to a Slack adapter. `ConsoleGateway`, the only gateway that ships, ignores `channel` entirely and prints to stdout no matter what you pass. Slack, Teams, and REST adapters are Phase 4 and unbuilt — see the channel row in [`docs/features.md`](../features.md).
+>
+> So `channel="slack"` today records an intention and hands it to whatever gateway you configured. It does not deliver anything to Slack on its own.
+
+That makes the pair genuinely useful for exactly one thing: **one gateway of your own, fanning out to several destinations.** Rather than configuring a different engine per destination, read the fields off the notice and dispatch yourself:
+
+```python
+class RoutingGateway:
+    name = "routing"
+
+    def notify(self, notice: PauseNotice) -> GatewayHandle:
+        if notice.channel == "slack":
+            slack_client.post(channel="#approvals", text=_render(notice), users=notice.reviewers)
+        elif notice.channel == "email":
+            send_mail(to=list(notice.reviewers), subject=notice.reason, body=_render(notice))
+        else:
+            print(_render(notice))
+        return GatewayHandle(channel=notice.channel, message_id=notice.run_id)
+```
+
+`reviewers` is carried, not enforced. Nothing checks that the person who presents the resume token is one of them — the token is scope-bound to the run and gate, not to an identity. Role enforcement and N-of-M approval are Phase 4. If you need to restrict *who* may approve, do it in the surface that holds the token (your web handler, your Slack action handler), not by listing reviewers here.
+
+To widen the audience mid-gate, use `ESCALATE`: it mints a fresh token and leaves the run paused, and it replaces `reviewers` on the stored pause from the `actor` mapping — there is no separate `reviewers=` argument on `resume()`:
+
+```python
+chowki.resume(
+    run_id="run-1",
+    token=token,
+    decision=chowki.Decision.ESCALATE,
+    actor={"reviewers": ["U99999", "director@example.com"]},
+)
+```
+
+Anything other than a list under `actor["reviewers"]` leaves the existing reviewers in place. The gateway is notified again with the new token, so the next notice carries the widened list.
+
 ---
 
 ## Pause Tokens & Lifecycle
