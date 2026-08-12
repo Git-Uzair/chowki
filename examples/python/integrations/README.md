@@ -23,10 +23,32 @@ can diff two files and see only what that framework changes. The shared tools li
 | [`openai_agents_refund.py`](openai_agents_refund.py) | OpenAI Agents SDK | `pip install openai-agents` |
 | [`pydantic_ai_refund.py`](pydantic_ai_refund.py) | Pydantic AI | `pip install pydantic-ai` |
 | [`anthropic_tool_loop.py`](anthropic_tool_loop.py) | none — a hand-written Claude loop | `pip install anthropic` |
+| [`slack_approvals.py`](slack_approvals.py) | Slack approvals + FastAPI ingress | `pip install fastapi uvicorn slack-sdk` |
 
 These need an API key and the framework installed, so they are **not** run in CI. The
 zero-dependency showcases in the parent directory — [`quickstart.py`](../quickstart.py) and
 [`agent_review.py`](../agent_review.py) — are.
+
+---
+
+## Approving in Slack, resuming over HTTP
+
+[`slack_approvals.py`](slack_approvals.py) is the odd one out: it integrates a *channel*
+rather than an agent framework. A workflow pauses, the gate arrives in Slack as Approve /
+Reject buttons carrying the resume token, and the click comes back to a FastAPI endpoint
+that verifies Slack's HMAC signature and calls `chowki.resume()`.
+
+**A first-party Slack adapter is roadmap Phase 4 and is not shipped.** That example is what
+you write today to get the same result — and the extension points it uses are not
+placeholders: `ChannelGateway.notify`, `verify_ingress`, and `parse_action` all exist now,
+`ConsoleGateway` is a reference implementation of the same protocol, and `PauseNotice`
+caps the token below Slack's 2000-character button limit on purpose. When the built-in
+adapter lands you delete the gateway class; your workflow code does not change.
+
+Two things chowki deliberately leaves to you there: `reviewers` is carried but never
+enforced (the token authorises a run and gate, not a person), and `resume()` re-executes
+the workflow body in the calling process, so anything slow after the gate belongs in a
+background task.
 
 ---
 
