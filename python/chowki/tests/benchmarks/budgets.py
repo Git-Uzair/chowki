@@ -25,7 +25,16 @@ BUDGETS: Final[dict[str, float]] = {
     # to 0.6 ms to sit above the slow mode; snapshot_total_1mb_ms remains the binding
     # 3.5 ms end-to-end claim, so component gates no longer sum to it.
     "encode_1mb_ms": 0.6,
+    # Reference figure, not the enforced gate. Hashing 1 MiB *is* OpenSSL's SHA-256 core:
+    # chowki's own contribution (hex encode + the "sha256:" prefix) measures 0.9 us, 0.2%
+    # of the total. The absolute number therefore tracks the CPU, not the library — 0.482 ms
+    # (2.18 GB/s) on the reference dev box against 0.751 ms (1.40 GB/s) on a shared CI
+    # runner, a 1.6x spread no chowki change can move. Enforcement moved to
+    # HASH_OVERHEAD_MAX plus canonical_hash_1mb_ceiling_ms; see test_hash_bench.py.
     "canonical_hash_1mb_ms": 0.35,
+    # Absolute backstop for the same operation, sized so every CPU chowki supports clears
+    # it while a regression that walks the buffer twice (measured ratio 2.0) still fails.
+    "canonical_hash_1mb_ceiling_ms": 1.0,
     "encrypt_1mb_ms": 0.4,
     "dispatch_ms": 0.2,
     # End-to-end total budget for 1 MiB snapshot pipeline.
@@ -35,6 +44,13 @@ BUDGETS: Final[dict[str, float]] = {
     # --- Delta persistence and warm resume ---
     "delta_diff_1mb_ms": 1.0,
     "warm_resume_base_plus_10_deltas_ms": 2.5,
+    # Cold path: reconstruct a run from stored envelopes, as `chowki resume` does. Distinct
+    # from the warm gate above, which covers `DeltaChain.materialize()` over trees already
+    # in memory (0.064 ms measured) — only 1.5% of this figure. The rest is msgpack decode
+    # of the 1 MiB base (0.85 ms), the `inline_blobs` walk (2.08 ms) and the defensive
+    # `_copy_containers` walk (1.31 ms). Base set from measurement: 4.33 ms on the reference
+    # dev box, 4.95 ms on a shared CI runner. Runs once per resume, not per step.
+    "cold_load_base_plus_10_deltas_ms": 5.0,
     # --- Decorator and guardrail overhead, per step ---
     "step_decorator_overhead_us": 50.0,
     "loop_detect_step_us": 100.0,
@@ -45,6 +61,13 @@ BUDGETS: Final[dict[str, float]] = {
 #: Local runs and CI use the same factor so a "green locally, red in CI" split is
 #: impossible. Tighten only with a plan update.
 TOLERANCE: Final = 1.5
+
+#: Ceiling on what chowki may add on top of the platform's own SHA-256 digest, as a ratio
+#: measured on the machine running the test. Hardware-independent where an absolute
+#: millisecond gate is not: the two medians are sampled alternately on one CPU, so the
+#: runner's throughput cancels out. Measured ratio is 1.000 +/- 0.006 across trials and 2.008
+#: for a regression that hashes the buffer twice, so 1.15 sits ~15x clear of the noise.
+HASH_OVERHEAD_MAX: Final = 1.15
 
 
 def limit_seconds(name: str) -> float:
