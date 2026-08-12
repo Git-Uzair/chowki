@@ -1403,7 +1403,7 @@ def _executor_id() -> tuple[int, int]:
 
 ## Task 8 — CHANGELOG, catalog sweep, and full verification
 
-**Status:** PENDING
+**Status:** COMPLETED
 **Difficulty:** EASY
 **Depends on:** Tasks 1-7.
 **Goal:** the release notes tell an upgrader what changed under them, and the whole gate
