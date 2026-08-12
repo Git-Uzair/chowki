@@ -97,6 +97,18 @@ BINARY_SUFFIXES = {
 
 BANNED_WORD = "check" + "point"  # split so this guard never trips on itself
 
+#: Documents that may spell the competitor's word for the concept, because they are
+#: written in the reader's vocabulary rather than ours (POSITIONING.md, Finding 0). The
+#: ban still means "never use their word for our own mechanism" everywhere else.
+BANNED_WORD_ALLOWLIST = frozenset(
+    {
+        Path("README.md"),
+        Path("python/chowki/README.md"),
+        Path("docs/comparison.md"),
+        Path("POSITIONING.md"),
+    }
+)
+
 
 def decode_text(raw: bytes) -> str | None:
     for encoding in ("utf-8", "utf-16", "latin-1"):
@@ -164,7 +176,7 @@ def main() -> int:
         if text is None:
             continue
 
-        if BANNED_WORD in text.lower():
+        if BANNED_WORD in text.lower() and rel_path not in BANNED_WORD_ALLOWLIST:
             failures.append(f"banned product term in {rel_path}")
 
         if not text.endswith("\n"):

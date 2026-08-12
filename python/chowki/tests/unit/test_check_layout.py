@@ -267,3 +267,43 @@ def test_check_layout_supports_utf16_text_files(
 
     utf16_file.write_bytes("no trailing newline".encode("utf-16le"))
     assert check_layout.main() == 1
+
+
+def test_check_layout_allows_the_banned_term_in_positioning_surfaces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The four documents written in the reader's vocabulary may use the term."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("content\n", encoding="utf-8")
+
+    banned = "check" + "point"
+    for rel in check_layout.BANNED_WORD_ALLOWLIST:
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"a {banned} is what LangGraph calls it\n", encoding="utf-8")
+
+    assert check_layout.main() == 0
+
+
+def test_check_layout_still_bans_the_term_outside_the_allowlist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Allowlisting the READMEs must not weaken the rule anywhere else."""
+    monkeypatch.setattr(check_layout, "ROOT", tmp_path)
+    for d in check_layout.REQUIRED_DIRS:
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    for f in check_layout.REQUIRED_FILES:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("content\n", encoding="utf-8")
+
+    banned = "check" + "point"
+    (tmp_path / "docs" / "user-guide").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "user-guide" / "concepts.md").write_text(
+        f"our {banned} mechanism\n", encoding="utf-8"
+    )
+
+    assert check_layout.main() == 1
