@@ -203,7 +203,7 @@ otel = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cryptography", specifier = ">=43.0.0" },
+    { name = "cryptography", specifier = ">=50.0.0" },
     { name = "jsonpatch", specifier = ">=1.33" },
     { name = "jsonpointer", specifier = ">=2.4" },
     { name = "msgspec", specifier = ">=0.18.6" },
