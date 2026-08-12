@@ -33,7 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `chowki_step_args_changed`, and re-execute them — including their side effects. **Drain
   or complete in-flight runs before upgrading.** Runs whose step arguments are primitives,
   dicts, lists, sets, or tuples are unaffected.
-- Workflow arguments are redacted (best-effort, per the redactor's key-name, pattern, and entropy rules) before they are persisted. A recognized secret passed as a workflow argument replays as its [REDACTED:...] placeholder; chowki_workflow_args_redacted is logged when that happens. Tuples replay as lists.
+- Workflow arguments are redacted (best-effort, per the redactor's key-name, pattern,
+  and entropy rules) before they are persisted. A recognized secret passed as a
+  workflow argument replays as its `[REDACTED:...]` placeholder;
+  `chowki_workflow_args_redacted` is logged when that happens. Tuples replay as lists.
 - PyPI metadata: new `description`, searchable `keywords`, and AI/recovery/security
   Trove classifiers.
 - `scripts/check_layout.py` allowlists `README.md`, `python/chowki/README.md`,

@@ -1404,9 +1404,10 @@ def _executor_id() -> tuple[int, int]:
 ## Task 8 — CHANGELOG, catalog sweep, and full verification
 
 **Status:** COMPLETED
-**Failed Verify Cycles:** 1
+**Failed Verify Cycles:** 2
 **Attempt Ledger:**
 - attempt 1: write CHANGELOG, update plan status, run ci_local.py -> VERDICT FAIL (DISCREPANCY: CHANGELOG.md claimed secret arguments unconditionally replay as placeholders, but redaction is best-effort per redactor rules; wording must reflect best-effort redaction)
+- attempt 2: refine CHANGELOG.md to note best-effort redaction per redactor's key-name, pattern, and entropy rules -> VERDICT FAIL (PLAN step 8: CHANGELOG.md line 36 missing inline code backticks `[REDACTED:...]` and `chowki_workflow_args_redacted` and multi-line wrapping to match sibling bullets)
 **Difficulty:** EASY
 **Depends on:** Tasks 1-7.
 **Goal:** the release notes tell an upgrader what changed under them, and the whole gate
