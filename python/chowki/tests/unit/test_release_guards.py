@@ -210,8 +210,31 @@ def test_guard_rejects_an_empty_dist(tmp_path: Path) -> None:
         find_artifacts(empty)
 
 
+@pytest.fixture
+def _offline_pypi(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the already-published set so these tests do not depend on live PyPI.
+
+    Without this, `test_guard_accepts_a_correct_release` starts failing the moment its
+    hardcoded version is actually released — which is exactly what happened once 0.1.0
+    went out. The guard was right; the test was reading the network.
+    """
+    import check_release
+
+    monkeypatch.setattr(check_release, "_released_versions", lambda: {"0.0.1", "0.1.0"})
+
+
+@pytest.mark.usefixtures("_offline_pypi")
 def test_guard_accepts_a_correct_release(tmp_path: Path) -> None:
-    dist = _dist(tmp_path, "0.1.0", dunder="0.1.0")
-    notes = check("v0.1.0", dist)
+    dist = _dist(tmp_path, "0.2.0", dunder="0.2.0")
+    notes = check("v0.2.0", dist)
     assert any("METADATA version matches" in n for n in notes)
     assert any("__version__ matches" in n for n in notes)
+    assert any("not yet on PyPI" in n for n in notes)
+
+
+@pytest.mark.usefixtures("_offline_pypi")
+def test_guard_rejects_a_version_already_on_pypi(tmp_path: Path) -> None:
+    """PyPI never allows a version number to be reused, even after deletion."""
+    dist = _dist(tmp_path, "0.1.0", dunder="0.1.0")
+    with pytest.raises(ReleaseError, match="already on PyPI"):
+        check("v0.1.0", dist)
