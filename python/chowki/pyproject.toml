@@ -35,7 +35,7 @@ Documentation = "https://github.com/Git-Uzair/chowki#readme"
 Issues = "https://github.com/Git-Uzair/chowki/issues"
 
 [project.optional-dependencies]
-otel = ["opentelemetry-sdk>=1.27.0"]
+otel = ["opentelemetry-sdk>=1.44.0"]
 
 [project.scripts]
 chowki = "chowki.cli:main"
