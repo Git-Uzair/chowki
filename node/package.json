@@ -1,5 +1,5 @@
 {
-  "name": "chowki",
+  "name": "@chowki/core",
   "version": "0.0.1",
   "description": "Placeholder for the Node/TypeScript SDK of chowki — in-process agent state preservation, guardrails, and warm resume. The Python SDK is available on PyPI today.",
   "keywords": [

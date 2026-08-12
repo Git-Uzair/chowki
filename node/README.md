@@ -1,4 +1,4 @@
-# chowki (Node / TypeScript) — placeholder
+# @chowki/core — placeholder
 
 **This package has no implementation yet.** It exists so the name resolves to the real
 project instead of to nothing, and so anyone who finds it is pointed at the SDK that does
