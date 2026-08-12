@@ -1,14 +1,12 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<pre>
-   ██████╗██╗  ██╗ ██████╗ ██╗    ██╗██╗  ██╗██╗
-  ██╔════╝██║  ██║██╔═══██╗██║    ██║██║ ██╔╝██║
-  ██║     ███████║██║   ██║██║ █╗ ██║█████╔╝ ██║
-  ██║     ██╔══██║██║   ██║██║███╗██║██╔═██╗ ██║
-  ╚██████╗██║  ██║╚██████╔╝╚███╔███╔╝██║  ██╗██║
-   ╚═════╝╚═╝  ╚═╝ ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝
-</pre>
-
-# chowki
+<samp>
+&nbsp;&nbsp;&nbsp;██████╗██╗&nbsp;&nbsp;██╗&nbsp;██████╗&nbsp;██╗&nbsp;&nbsp;&nbsp;&nbsp;██╗██╗&nbsp;&nbsp;██╗██╗<br/>
+&nbsp;&nbsp;██╔════╝██║&nbsp;&nbsp;██║██╔═══██╗██║&nbsp;&nbsp;&nbsp;&nbsp;██║██║&nbsp;██╔╝██║<br/>
+&nbsp;&nbsp;██║&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;███████║██║&nbsp;&nbsp;&nbsp;██║██║&nbsp;█╗&nbsp;██║█████╔╝&nbsp;██║<br/>
+&nbsp;&nbsp;██║&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;██╔══██║██║&nbsp;&nbsp;&nbsp;██║██║███╗██║██╔═██╗&nbsp;██║<br/>
+&nbsp;&nbsp;╚██████╗██║&nbsp;&nbsp;██║╚██████╔╝╚███╔███╔╝██║&nbsp;&nbsp;██╗██║<br/>
+&nbsp;&nbsp;&nbsp;╚═════╝╚═╝&nbsp;&nbsp;╚═╝&nbsp;╚═════╝&nbsp;&nbsp;╚══╝╚══╝&nbsp;╚═╝&nbsp;&nbsp;╚═╝╚═╝
+</samp>
 
 **Your agent crashed on step 9 of 10. chowki makes step 10 the only thing that runs again.**
 

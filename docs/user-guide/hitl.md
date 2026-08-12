@@ -51,6 +51,35 @@ Calling `chowki.pause()` suspends execution immediately and raises `WorkflowPaus
 
 Give every parameter of a resumable workflow a default (as `deployment_workflow` does above), or take no parameters at all and read the run's inputs from inside steps or from `current_run().state`, which *is* restored on warm resume. Parameter values a reviewer must be able to change belong in the state (patchable with an `EDIT` decision), not in the signature.
 
+### A Step That Pauses Must Be `idempotent=False`
+
+Pausing from the workflow body, as above, always works. Pausing from **inside a `@chowki.step`** is also supported — the step interceptor re-raises `WorkflowPaused` rather than marking the step failed — but only if that step opts out of idempotency:
+
+```python
+@chowki.step(idempotent=False)  # required: the gate must be re-enterable
+def issue_refund(order_id: str, amount: float) -> str:
+    if amount > 100:
+        chowki.pause(reason="Large refund", payload={"order_id": order_id})
+    return _post_refund(order_id, amount)
+
+
+@chowki.step  # the side effect keeps its exactly-once claim
+def _post_refund(order_id: str, amount: float) -> str: ...
+```
+
+A default step claims its idempotency key *before* its body runs. `chowki.pause()` raises straight past that claim without releasing it, so when the resume replays the body and re-enters the step, the claim is still outstanding and `chowki` refuses to continue:
+
+```text
+ChowkiStorageError: step issue_refund#0 of run r1 has an unfinished idempotent attempt:
+idempotency key b9c6a883... is already claimed.
+```
+
+That error is the guard working as designed — it cannot tell a pause from a process that died holding the claim, so it declines to guess. Declaring the pausing step `idempotent=False` removes the claim and makes the gate re-enterable; keeping the irreversible work in a **nested default step** means the transfer still cannot happen twice. `REJECT` raises `HumanRejectedError` out of the workflow, and the nested step is never reached.
+
+This matters most when an agent framework owns the loop. The framework decides *when* to call a tool, so the gate has to live inside the tool rather than in the workflow body — see [`examples/python/integrations/`](../../examples/python/integrations/).
+
+If you hit the error on a run that is already stuck, the escape hatches named in the message apply: `chowki.release_step(run_id, step_id)` if the side effect did **not** happen, or `chowki.complete_step(...)` to record it if it did.
+
 ---
 
 ## Pause Tokens & Lifecycle
@@ -171,3 +200,4 @@ chowki --db ./.chowki/chowki.db -m my_module reissue-token <run_id>
 1. **Token Replay Attempts:** Reusing a resume token raises `ReplayedNonceError`. Always obtain a fresh token via `reissue_token` if needed.
 2. **Unsupported Decision Actions:** Requesting `Decision.EDIT` when `permitted_actions` did not include `"EDIT"` raises `InvalidResumeToken`.
 3. **Invalid JSON Patch Paths:** Passing a patch path that does not exist in the current state dictionary raises an error during RFC 6902 patch execution.
+4. **Pausing Inside a Default Step:** A `@chowki.step` that reaches `chowki.pause()` without `idempotent=False` pauses fine but fails its own resume with `ChowkiStorageError: ... unfinished idempotent attempt`. See [A Step That Pauses Must Be `idempotent=False`](#a-step-that-pauses-must-be-idempotentfalse).
