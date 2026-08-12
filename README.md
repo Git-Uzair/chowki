@@ -15,6 +15,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml/badge.svg)](https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml)
 
+> **State savers restore *state*. chowki memoizes *step results* — so on resume, the LLM calls and API requests that already succeeded do not happen again.**
+
+Coming from LangGraph? Its `SqliteSaver` restores the graph state at a checkpoint, and
+its own docs say the nodes after it re-execute — "including any LLM calls, API requests,
+and interrupts". chowki records the *result* of every `@chowki.step`, so those calls are
+served from the record instead of re-issued.
+
+- **No determinism tax** — no replay-safe workflow body, no journal-mismatch errors. Your
+  code may call `random`, `time.time()`, or an API directly; non-determinism is isolated
+  at the step boundary.
+- **Approval gates with cryptographic provenance** — one single-use HMAC-SHA256 token per
+  run and gate, four decisions (`APPROVE` / `REJECT` / `EDIT` as an RFC 6902 patch /
+  `ESCALATE`), and an append-only audit log no adapter is permitted to delete from.
+- **Secret redaction that cannot be switched off** — key names, a combined
+  provider-credential regex, and Shannon entropy over step arguments, state, and logs
+  *before* anything is persisted.
+- **Agent cost budgets** — token and spend ceilings with an 80% soft warning re-seeded
+  from persisted usage on resume, three tiers of loop detection, and `max_steps_per_run`.
+
 `chowki` (Urdu *چوکی* — a checkpost, a place where things are stopped and inspected) is an
 in-process control plane for LLM agents: durable state, human approval gates, secret
 redaction, and runaway-loop guardrails, added to agent code you have already written.
