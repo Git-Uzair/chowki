@@ -2,6 +2,16 @@
 
 This directory contains runnable python examples demonstrating `chowki` features.
 
+## Using chowki with an agent framework
+
+**[`integrations/`](integrations/)** — the same refund agent implemented against LangChain /
+LangGraph, CrewAI, the OpenAI Agents SDK, Pydantic AI, and a hand-written Claude tool loop,
+so you can diff two files and see only what the framework changes. Start there if you
+already have an agent and want to know where chowki attaches.
+
+Those need an API key and the framework installed, so they are not exercised in CI. The
+examples below are zero-dependency and are.
+
 ## Examples
 
 ### Quickstart (`quickstart.py`)
