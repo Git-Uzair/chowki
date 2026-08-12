@@ -70,13 +70,15 @@ def test_agent_showcase_flow(tmp_path: Path) -> None:
 
     run_id = "agent-showcase-run-1"
 
-    # Step 1: Initial run with simulated crash after step 1
-    with pytest.raises(RuntimeError, match="Simulated mid-run crash after step 1"):
-        agent_review_workflow(
-            prompt="Audit repo security",
-            crash_after_step=1,
-            run_id=run_id,
-        )
+    # Step 1: Initial run with simulated crash after step 1. The trigger is an env var,
+    # not an argument: arguments are persisted on the run record and replayed by
+    # `rerun()`, so a crash flag passed as one would crash the recovery run too.
+    os.environ["CHOWKI_CRASH_AFTER"] = "1"
+    try:
+        with pytest.raises(RuntimeError, match="Simulated mid-run crash after step 1"):
+            agent_review_workflow(prompt="Audit repo security", run_id=run_id)
+    finally:
+        os.environ.pop("CHOWKI_CRASH_AFTER", None)
 
     # Verify that only step 1 LLM call executed before crash
     assert get_llm_call_count() == 1
@@ -105,7 +107,7 @@ def test_agent_showcase_flow(tmp_path: Path) -> None:
     # Step 1 was memoised (count stayed at 1 for step 1), step 3 LLM call ran -> count is 2
     assert get_llm_call_count() == 2
 
-    # Step 3: Resume with EDIT decision and crash_after_step 3
+    # Step 3: Resume with EDIT decision and CHOWKI_CRASH_AFTER=3
     patch = [{"op": "replace", "path": "/draft/to", "value": "security-team@example.com"}]
     os.environ["CHOWKI_CRASH_AFTER"] = "3"
     try:

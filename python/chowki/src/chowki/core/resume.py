@@ -30,8 +30,9 @@ from chowki.errors import (
 from chowki.hitl.audit import AuditLog, build_audit_record, redact_patch
 from chowki.hitl.tokens import ResumeClaims
 from chowki.state.canonical import content_hash
+from chowki.state.codec import decode_state
 from chowki.state.delta import Patch, apply_patch
-from chowki.types import Decision, JSONObject, RunRecord, RunStatus
+from chowki.types import Decision, JSONObject, JSONValue, RunRecord, RunStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,8 +86,62 @@ def _resolve_workflow(
     return target_fn
 
 
-def _invoke_workflow(workflow_fn: Callable[..., Any], run_id: str) -> Any:
-    return workflow_fn(run_id=run_id)
+def _stored_call(
+    workflow_fn: Callable[..., Any], run: RunRecord | None
+) -> tuple[list[Any], dict[str, Any]]:
+    """Return the arguments a re-invocation must pass, or explain why it cannot.
+
+    Warm resume re-executes the body from line 1, so it needs the arguments of the
+    original call. They live on the run record (`RunRecord.inputs`); a run written before
+    that field existed, or whose arguments could not be encoded, has none -- and if the
+    signature has a required parameter, the re-invocation would die with a bare TypeError
+    naming a parameter the caller never passed. Say what actually happened instead.
+    """
+    args: list[Any] = []
+    kwargs: dict[str, Any] = {}
+    if run is not None and run.inputs is not None:
+        decoded = decode_state(run.inputs)
+        if isinstance(decoded, dict):
+            # Typed as JSONValue rather than Any so the isinstance checks below narrow to
+            # known element types: the payload is whatever was on disk, not a promise.
+            stored: dict[str, JSONValue] = decoded
+            raw_args = stored.get("args")
+            raw_kwargs = stored.get("kwargs")
+            if isinstance(raw_args, list):
+                args = list(raw_args)
+            if isinstance(raw_kwargs, dict):
+                kwargs = dict(raw_kwargs)
+
+    if not args and not kwargs:
+        # `inspect.signature` follows `functools.wraps`' `__wrapped__`, so this reports
+        # the undecorated signature the caller wrote, not the wrapper's (*args, **kwargs).
+        required = [
+            name
+            for name, param in inspect.signature(workflow_fn).parameters.items()
+            if param.default is inspect.Parameter.empty
+            and param.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+        ]
+        if required:
+            run_id = run.run_id if run is not None else "<unknown>"
+            raise ChowkiStateError(
+                f"run {run_id!r} has no stored workflow arguments, and "
+                f"{getattr(workflow_fn, '__name__', 'the workflow')} requires {required}. "
+                f"Runs started before chowki persisted workflow arguments cannot be "
+                f"resumed unless every parameter has a default."
+            )
+    return args, kwargs
+
+
+def _invoke_workflow(
+    workflow_fn: Callable[..., Any], run_id: str, run: RunRecord | None = None
+) -> Any:
+    args, kwargs = _stored_call(workflow_fn, run)
+    return workflow_fn(*args, run_id=run_id, **kwargs)
 
 
 def _confirm_gateway(
@@ -301,7 +356,7 @@ def resume(
         note=note,
     )
 
-    val = _invoke_workflow(target_fn, run_id)
+    val = _invoke_workflow(target_fn, run_id, run)
 
     return ResumeResult(
         run_id=run_id,
@@ -358,9 +413,10 @@ async def aresume(
     )
 
     if inspect.iscoroutinefunction(target_fn):
-        val = await target_fn(run_id=run_id)
+        args, kwargs = _stored_call(target_fn, run)
+        val = await target_fn(*args, run_id=run_id, **kwargs)
     else:
-        val = _invoke_workflow(target_fn, run_id)
+        val = _invoke_workflow(target_fn, run_id, run)
 
     return ResumeResult(
         run_id=run_id,
@@ -383,4 +439,4 @@ def rerun(
         raise ChowkiStateError(f"chowki run {run_id!r} not found")
 
     target_fn = _resolve_workflow(None, run.workflow)
-    return _invoke_workflow(target_fn, run_id)
+    return _invoke_workflow(target_fn, run_id, run)

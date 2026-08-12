@@ -150,3 +150,8 @@ class RunRecord(msgspec.Struct, kw_only=True):
     step_cursor: int = 0
     pause: PauseRequest | None = None
     usage: Usage = msgspec.field(default_factory=Usage)
+    #: MessagePack of ``{"args": [...], "kwargs": {...}}`` as the workflow was first
+    #: called, redacted before it is persisted. ``None`` when the run predates this field,
+    #: took no arguments, or passed something the codec cannot encode -- resume then falls
+    #: back to the signature's defaults, exactly as it always did.
+    inputs: bytes | None = None

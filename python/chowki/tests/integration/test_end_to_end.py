@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import functools
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -103,7 +102,9 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
             {"op": "test", "path": "/proposal/amount", "value": 5000},
             {"op": "replace", "path": "/proposal/recipient", "value": "vendor@example.com"},
         ],
-        workflow_fn=functools.partial(payout, "pay the vendor"),
+        # No `functools.partial` binding "pay the vendor" any more: the run record carries
+        # the arguments of the original call and the re-invocation replays them.
+        workflow_fn=payout,
         engine=engine,
         actor={"platform": "web", "user_id": "U1"},
     )
@@ -127,7 +128,7 @@ def test_full_lifecycle(engine: ChowkiEngine, tmp_path: Path) -> None:
             run_id="e2e",
             token=token,
             decision=Decision.APPROVE,
-            workflow_fn=functools.partial(payout, "pay the vendor"),
+            workflow_fn=payout,
             engine=engine,
         )
 

@@ -166,11 +166,12 @@ def _required_params(args: ast.arguments) -> list[str]:
 
 
 def test_documented_workflows_are_invocable_the_way_resume_invokes_them() -> None:
-    """Every documented workflow can be called the way a warm resume calls it.
+    """Every documented workflow can be started with no arguments at all.
 
-    ``resume()``/``rerun()`` re-invoke the workflow as ``workflow_fn(run_id=run_id)`` and
-    pass nothing else, so a documented workflow with a parameter that has no default
-    cannot actually be resumed -- the re-invocation dies with a ``TypeError``.
+    ``resume()``/``rerun()`` do replay the original call's arguments from the run record,
+    so a required parameter no longer breaks a resume. This stays a property of the guide
+    because its snippets are meant to be copy-pasted and run as-is: a reader who calls a
+    documented workflow with nothing gets a working example, not a ``TypeError``.
     """
     blocks = _python_blocks()
     assert len(blocks) > 0, "No python blocks found in user guide"
@@ -184,8 +185,8 @@ def test_documented_workflows_are_invocable_the_way_resume_invokes_them() -> Non
             required = _required_params(node.args)
             assert not required, (
                 f"{md_file.name} documents workflow {node.name} with parameter(s) "
-                f"{required} that have no default -- resume() re-invokes the workflow as "
-                f"{node.name}(run_id=run_id), which would raise TypeError."
+                f"{required} that have no default -- a reader who copies the snippet and "
+                f"calls {node.name}() gets a TypeError instead of a working example."
             )
 
 

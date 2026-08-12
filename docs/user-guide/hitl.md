@@ -45,11 +45,13 @@ def deployment_workflow(
 
 Calling `chowki.pause()` suspends execution immediately and raises `WorkflowPaused`, transitioning the run status to `PAUSED`.
 
-### Every Parameter of a Pausing Workflow Needs a Default
+### A Pausing Workflow Resumes With the Arguments It Started With
 
-`chowki.resume()` (and `chowki.rerun()`) re-invoke the workflow function as `workflow_fn(run_id=run_id)` and pass **nothing else** — the original call arguments are not stored and not replayed. A pausing workflow whose parameters have no defaults therefore fails its own resume with `TypeError: missing 1 required positional argument`.
+`chowki.resume()`, `chowki.aresume()` and `chowki.rerun()` re-invoke the workflow as `workflow_fn(*args, run_id=run_id, **kwargs)`, using the arguments of the original call as they were persisted (redacted) on the run record. A required parameter is fine, and the entity the reviewer approved is the entity the resumed run acts on — a defaulted parameter can no longer quietly swap it.
 
-Give every parameter of a resumable workflow a default (as `deployment_workflow` does above), or take no parameters at all and read the run's inputs from inside steps or from `current_run().state`, which *is* restored on warm resume. Parameter values a reviewer must be able to change belong in the state (patchable with an `EDIT` decision), not in the signature.
+Two caveats carry over from the codec: a secret passed as an argument replays as its `[REDACTED:…]` placeholder, so pass secrets through configuration instead; and an argument the codec cannot encode is not stored at all (logged as `chowki_workflow_args_not_persisted`), leaving that run resumable only if every parameter has a default.
+
+Values a reviewer must be able to change still belong in `current_run().state`, which is what an `EDIT` decision patches. A workflow argument is fixed for the life of the run — see [Warm Resume](warm-resume.md#workflow-arguments-are-replayed-from-the-run-record).
 
 ### A Step That Pauses Must Be `idempotent=False`
 

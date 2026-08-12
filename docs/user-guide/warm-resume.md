@@ -13,11 +13,19 @@ As execution encounters each `@chowki.step`:
 2. If storage contains a completed `StepRecord` with a matching idempotency key, `chowki` skips function execution and returns the stored result immediately.
 3. If no completed record exists, the step function executes, its result is written to disk, and workflow execution proceeds to the next line.
 
-### Resumable Workflows Take No Required Arguments
+### Workflow Arguments Are Replayed From the Run Record
 
-Both `resume()` and `rerun()` re-invoke the workflow as `workflow_fn(run_id=run_id)` — that keyword is the only argument they pass. The arguments of the *original* call are not part of the run record and are never replayed, so a workflow with a parameter that has no default cannot be resumed: the re-invocation raises `TypeError: missing 1 required positional argument`.
+The arguments of the call that *started* a run are persisted on its run record (redacted, as MessagePack `{"args": [...], "kwargs": {...}}`) before the first step runs, and `resume()`, `aresume()` and `rerun()` replay them: `workflow_fn(*args, run_id=run_id, **kwargs)`. A required parameter is therefore fine — `bill("inv-999", run_id="r1")` resumes as `bill("inv-999", run_id="r1")`, hits the same `args_hash`, and skips the steps it already ran.
 
-So a resumable workflow either gives every parameter a default value (as `bad_workflow`/`good_workflow` below do) or takes no parameters at all, and reads its inputs inside steps or from `current_run().state` — the state *is* restored from the last snapshot before the body re-executes, which is exactly why per-run inputs belong there rather than in the signature.
+Three caveats:
+
+- **Types round-trip through MessagePack.** A tuple argument comes back as a list, a `msgspec.Struct` as a dict — the same rule step results follow. A workflow that `isinstance`-checks a tuple parameter will behave differently on resume.
+- **A secret argument replays as its placeholder.** Everything chowki persists is redacted first, so a run started with `api_key="sk-…"` is re-invoked with `api_key="[REDACTED:api_key:…]"`. `chowki_workflow_args_redacted` is logged when it happens. Pass secrets through configuration or the environment, not through workflow parameters.
+- **An argument the codec cannot encode is not stored.** Arbitrary Python objects are not MessagePack-encodable; when one is passed, `chowki_workflow_args_not_persisted` is logged and the run record's `inputs` stays `None`. Such a run is resumable only if every parameter has a default — and a re-invocation of a run with no stored arguments and a required parameter raises `ChowkiStateError` naming the parameters, rather than a bare `TypeError`.
+
+Arguments are recorded once, by the call that creates the run record; re-invoking the same `run_id` is a warm resume and does not overwrite them.
+
+Values a reviewer must be able to change still belong in `current_run().state` — the state *is* restored from the last snapshot before the body re-executes, and it is what an `EDIT` decision patches. A workflow argument is fixed for the life of the run.
 
 ---
 

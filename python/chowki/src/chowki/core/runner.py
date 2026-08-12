@@ -23,11 +23,43 @@ from chowki.errors import (
 )
 from chowki.guardrails.breaker import AnomalyBreaker, BreakerAction
 from chowki.hitl.gateway import PauseNotice
+from chowki.state.codec import encode_state
 from chowki.state.delta import Patch, apply_patch
-from chowki.types import JSONObject, PauseRequest, RunRecord, RunStatus, Usage
+from chowki.types import JSONObject, JSONValue, PauseRequest, RunRecord, RunStatus, Usage
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+def _encode_inputs(
+    engine: ChowkiEngine,
+    workflow_name: str,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> bytes | None:
+    """Redact and encode a workflow's call arguments, or return None and say why.
+
+    Persisting these is what makes a resume replay the call that actually happened
+    instead of the signature's defaults. Redaction runs first because everything chowki
+    persists is redacted; that means a secret argument replays as its placeholder, which
+    is worth a warning rather than a silent substitution. An argument the codec cannot
+    encode leaves the run exactly where it was before this existed: resumable only if
+    every parameter has a default.
+    """
+    if not args and not kwargs:
+        return None
+    logger = structlog.get_logger()
+    payload: dict[str, Any] = {"args": list(args), "kwargs": dict(kwargs)}
+    try:
+        redacted = cast(JSONValue, engine.redactor.redact(payload))
+        encoded = encode_state(redacted)
+        changed = redacted != payload
+    except Exception:
+        logger.warning("chowki_workflow_args_not_persisted", workflow=workflow_name)
+        return None
+    if changed:
+        logger.warning("chowki_workflow_args_redacted", workflow=workflow_name)
+    return encoded
 
 
 def _open_run(
@@ -35,6 +67,7 @@ def _open_run(
     workflow_name: str,
     run_id: str | None,
     tenant_id: str | None,
+    inputs: bytes | None = None,
 ) -> tuple[RunContext, RunRecord]:
     eff_tenant = tenant_id or engine.config.tenant_id
     rid = run_id or f"run_{uuid4().hex[:16]}"
@@ -51,8 +84,13 @@ def _open_run(
             created_at_utc=now,
             updated_at_utc=now,
             status=RunStatus.RUNNING,
+            inputs=inputs,
         )
     else:
+        # `record.inputs` is deliberately left alone: re-invoking an existing run id is a
+        # warm resume, and the arguments of the call that opened the run are the run's
+        # arguments. Overwriting them here would let a replay rewrite the record it is
+        # replaying from.
         record = existing
         record.status = RunStatus.RUNNING
         record.updated_at_utc = now
@@ -222,7 +260,10 @@ def workflow(
             ) -> Any:
                 eff_engine = engine or get_engine()
                 eff_tenant = tenant_id or dec_tenant_id
-                ctx, record = _open_run(eff_engine, workflow_name, run_id, eff_tenant)
+                encoded_inputs = _encode_inputs(eff_engine, workflow_name, args, kwargs)
+                ctx, record = _open_run(
+                    eff_engine, workflow_name, run_id, eff_tenant, inputs=encoded_inputs
+                )
                 exc_occurred: BaseException | None = None
                 with run_scope(ctx):
                     try:
@@ -252,7 +293,10 @@ def workflow(
             ) -> Any:
                 eff_engine = engine or get_engine()
                 eff_tenant = tenant_id or dec_tenant_id
-                ctx, record = _open_run(eff_engine, workflow_name, run_id, eff_tenant)
+                encoded_inputs = _encode_inputs(eff_engine, workflow_name, args, kwargs)
+                ctx, record = _open_run(
+                    eff_engine, workflow_name, run_id, eff_tenant, inputs=encoded_inputs
+                )
                 exc_occurred: BaseException | None = None
                 with run_scope(ctx):
                     try:

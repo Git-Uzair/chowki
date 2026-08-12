@@ -257,6 +257,19 @@ via `reissue_token`.
   `recover_runs` re-arms RUNNING → PENDING only (never FAILED). Ordinals reset on
   every (re-)execution; **snapshot indices never do** — they continue above the max
   stored index so replays cannot overwrite history.
+- **`RunRecord.inputs` (wire field, appended, default absent/null).** MessagePack of
+  `{"args": [...], "kwargs": {...}}`, the arguments of the call that opened the run,
+  **redacted before encoding** (§7) exactly like every other persisted payload. Written
+  **only when the run record is created** — re-invoking an existing `run_id` is a warm
+  resume and MUST NOT overwrite it — and durable before the first step runs. Every
+  re-invocation (`resume`/`aresume`/`rerun`) replays it as
+  `workflow_fn(*args, run_id=run_id, **kwargs)`, which is what makes a resumed step hit
+  the same `args_hash` (§4) instead of a default. Absent/null means "fall back to the
+  signature defaults": the run took no arguments, predates the field, or passed a value
+  the codec cannot encode (log `chowki_workflow_args_not_persisted`, never fail the
+  run). A re-invocation with no stored arguments whose signature still has a required
+  parameter is a state error, not a language-level TypeError. Types round-trip through
+  MessagePack (tuple → list), same as step results.
 
 ## 10. Money, usage, and time
 
@@ -281,7 +294,8 @@ wins, durable), `consume_nonce(nonce, expires_at)` (lifetime single-use),
 (append-only — no delete API may exist), `put_gateway_handle/get_gateway_handle`,
 `close()`. Records are stored as opaque encoded blobs plus queryable columns
 (run_id, status, ordinal, step_index, kind); adapters MUST copy on read/write (no
-shared mutable state with callers). Known gap for Phase 2: multi-write transitions
+shared mutable state with callers). `RunRecord.inputs` (§9) needs no adapter change: it
+is a field on an existing struct inside the opaque blob, not a new operation. Known gap for Phase 2: multi-write transitions
 (resume = audit + run + snapshot) are not atomic today; the contract needs an atomic
 transition API before the Postgres adapter.
 

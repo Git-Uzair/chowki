@@ -730,7 +730,7 @@ def _expand(val: object) -> Any:
 
 ## Task 6 — Persist the original workflow arguments and replay them on resume
 
-**Status:** PENDING
+**Status:** COMPLETED
 **Difficulty:** HARD
 **Depends on:** Task 5 (both touch step/arg semantics; landing 5 first keeps the
 memoisation assertions in this task's tests meaningful).

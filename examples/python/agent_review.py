@@ -105,13 +105,16 @@ def send_email_tool(draft: dict[str, Any]) -> str:
 
 
 @chowki.workflow
-def agent_review_workflow(
-    prompt: str = "Audit repo security",
-    crash_after_step: int | None = None,
-) -> str:
-    """Showcase Agent Workflow: safe search -> draft email -> human approval gate -> send email."""
-    crash_after = crash_after_step
-    if crash_after is None and "CHOWKI_CRASH_AFTER" in os.environ:
+def agent_review_workflow(prompt: str = "Audit repo security") -> str:
+    """Showcase Agent Workflow: safe search -> draft email -> human approval gate -> send email.
+
+    The crash simulation is driven by ``CHOWKI_CRASH_AFTER`` in the environment rather
+    than by a workflow parameter, because chowki persists a workflow's arguments and
+    replays them on `rerun()`: "this process should crash" would then be replayed too,
+    and the recovery run would crash at the very step it exists to get past.
+    """
+    crash_after: int | None = None
+    if "CHOWKI_CRASH_AFTER" in os.environ:
         with contextlib.suppress(ValueError):
             crash_after = int(os.environ["CHOWKI_CRASH_AFTER"])
 
@@ -194,6 +197,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.crash_after is not None:
+        os.environ["CHOWKI_CRASH_AFTER"] = str(args.crash_after)
+
     db_path = Path(args.db)
     if db_path.exists():
         with contextlib.suppress(OSError):
@@ -219,11 +225,7 @@ def main() -> None:
     # Step 1: Initial run -> watch soft budget warning & hit approval gate (or simulated crash)
     print("--- [1/4] Running Agent Workflow ---")
     try:
-        agent_review_workflow(
-            prompt="Audit repo security",
-            crash_after_step=args.crash_after,
-            run_id=run_id,
-        )
+        agent_review_workflow(prompt="Audit repo security", run_id=run_id)
     except chowki.WorkflowPaused as exc:
         token = exc.token
         print(f"\n[Pause Gate] Workflow paused at step '{exc.step_id}'!")
