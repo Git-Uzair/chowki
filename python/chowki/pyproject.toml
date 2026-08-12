@@ -49,6 +49,11 @@ packages = ["src/chowki"]
 
 [tool.hatch.version]
 source = "vcs"
+# The package root is python/chowki but .git is two levels up, and setuptools-scm searches
+# from the project directory only. Without this override it never finds the repository, so
+# every build silently took `fallback-version` and a `v0.2.0` tag would have published
+# 0.1.0 again. Verified: with the override a v9.9.9 tag builds chowki-9.9.9.
+raw-options = { root = "../.." }
 fallback-version = "0.1.0"
 
 [tool.hatch.build.hooks.vcs]
