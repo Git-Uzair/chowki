@@ -479,10 +479,11 @@ thing. Changing one without the others is the drift this section exists to preve
 ## Task 5 — Structural argument hashing (the `<TypeName>` collapse is a correctness bug)
 
 **Status:** COMPLETED
-**Failed Verify Cycles:** 1
+**Failed Verify Cycles:** 2
 **Attempt Ledger:**
 - attempt 1: implement `_expand` using `to_builtins` -> `model_dump` -> `__dict__` -> VERDICT FAIL (DISCREPANCY 1: set/frozenset inside Struct/dataclass converted by `to_builtins` to list with process-dependent iteration order; DISCREPANCY 2: `getattr(val, "model_dump", None)` raises non-AttributeError in `__getattr__`)
-- attempt 2: unpack Structs/dataclasses field by field (`structs.asdict` / `dataclasses.fields`) *before* `to_builtins`, so a set field reaches `_sanitize` as a set and is put in its total order; keep `to_builtins` ahead of `model_dump`/`__dict__` (an enum member's `__dict__` is enum machinery, not its value) and read both attribute probes under `except Exception` -> COMPLETED
+- attempt 2: shallow field unpacking for Structs and dataclasses before `to_builtins`, try/except Exception on attribute probes -> VERDICT FAIL (DISCREPANCY 3: deep chain of 500 plain objects raises RecursionError instead of collapsing to `<TypeName>` marker with `chowki_step_args_opaque` warning)
+- attempt 3 (opus-coder): keep attempt 2's expansion, add a deterministic depth cap (`_MAX_DEPTH = 100`, measured by `len(seen)`, the path depth `_sanitize` already tracks) that collapses to the marker before recursing further; deliberately *not* `except RecursionError`, which would make the hash depend on the caller's remaining stack -> COMPLETED
 **Difficulty:** HARD
 **Goal:** two different instances of the same complex class produce different
 `args_hash` values, so a step never replays another call's memoised result; anything

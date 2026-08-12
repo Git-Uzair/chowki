@@ -84,6 +84,39 @@ print(engine.storage.get_step("p", "handle#1").args_hash)
 """
 
 
+#: Hashes a 500-link chain of plain objects in a fresh interpreter. Each link's
+#: ``__dict__`` holds the next one, so expanding the argument structurally walks the whole
+#: chain; the hash must come out of that walk identical every time, not merely survive it.
+_DEEP_CHAIN_PROBE = """
+from chowki.config import ChowkiConfig, ChowkiEngine
+from chowki.core.context import RunContext, run_scope
+from chowki.core.decorators import step
+from chowki.storage.memory import MemoryStorage
+
+
+class Node:
+    def __init__(self, tag, nxt=None):
+        self.tag = tag
+        self.next = nxt
+
+
+@step
+def handle(payload):
+    return 1
+
+
+chain = Node("0")
+for i in range(1, 500):
+    chain = Node(str(i), chain)
+
+engine = ChowkiEngine(ChowkiConfig(storage=MemoryStorage()))
+ctx = RunContext(run_id="p", workflow="w", engine=engine)
+with run_scope(ctx):
+    handle(chain)
+print(engine.storage.get_step("p", "handle#0").args_hash)
+"""
+
+
 #: Runs one idempotent step against a SQLite file in a fresh interpreter. Phase ``crash``
 #: kills the process with ``os._exit`` in the middle of the side effect, leaving a RUNNING
 #: record behind; phase ``resume`` is the recovery process that must refuse to repeat it.
@@ -660,6 +693,23 @@ class _Plain:
         self.tag = tag
 
 
+class _Node:
+    """A link in the kind of chain an ORM or a linked list hands out: the object's
+    ``__dict__`` holds another object of the same class, so a structural expansion of the
+    head walks every link after it."""
+
+    def __init__(self, tag: str, nxt: object | None = None) -> None:
+        self.tag = tag
+        self.next = nxt
+
+
+def _chain(length: int) -> _Node:
+    node = _Node("0")
+    for i in range(1, length):
+        node = _Node(str(i), node)
+    return node
+
+
 class _Channel(enum.Enum):
     EMAIL = "email"
     SMS = "sms"
@@ -778,6 +828,37 @@ def test_an_argument_whose_getattr_raises_collapses_instead_of_killing_the_step(
     events = [entry for entry in logs if entry["event"] == "chowki_step_args_opaque"]
     assert events, "an argument that refuses every probe must be reported"
     assert events[0]["types"] == ["_Hostile"]
+
+
+def test_a_deep_object_chain_collapses_instead_of_exhausting_the_stack(
+    ctx: RunContext,
+) -> None:
+    """Expanding objects is recursive, so a long chain of them would blow the stack.
+
+    A ``RecursionError`` raised while *describing* the arguments kills a step that would
+    otherwise have run perfectly well, which is strictly worse than the collision the
+    marker admits to.
+    """
+
+    @step
+    def handle(payload: object) -> str:
+        return "done"
+
+    with capture_logs() as logs, run_scope(ctx):
+        assert handle(_chain(500)) == "done"
+
+    events = [entry for entry in logs if entry["event"] == "chowki_step_args_opaque"]
+    assert events, "an argument too deep to expand must be reported"
+    assert events[0]["types"] == ["_Node"]
+
+
+def test_deep_object_chains_hash_identically_in_a_fresh_process() -> None:
+    """The depth at which a chain stops expanding must be a property of the chain, not of
+    how much stack the caller happened to have left -- otherwise the resume key moves
+    with the call site."""
+    assert _hashes_under_seed(_DEEP_CHAIN_PROBE, "1") == _hashes_under_seed(
+        _DEEP_CHAIN_PROBE, "424242"
+    )
 
 
 def test_enum_arguments_hash_by_value_without_a_warning(ctx: RunContext) -> None:

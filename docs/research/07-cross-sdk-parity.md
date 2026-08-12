@@ -106,11 +106,17 @@ Schema-version unseal order: version check → integrity hash check → decode �
   move on every process restart); **(2)** whole-object conversion MUST precede
   attribute scraping, because an enum member's attribute table holds enum machinery
   (including its own class) instead of its value. Attribute probes MUST swallow *any*
-  error a lazy proxy raises and fall through to the marker. The Node SDK MUST reproduce
-  the same wrapper shape and the same expansion order (its equivalents: class fields →
-  `toJSON` → plain-object conversion → own enumerable properties → marker).
+  error a lazy proxy raises and fall through to the marker; **(3)** expansion MUST stop
+  at a fixed nesting depth (Python: 100 levels) and emit the marker there, because
+  expansion is recursive and a chain of objects each holding the next would otherwise
+  exhaust the host stack. That cut MUST be made on the value's depth within the
+  argument, never on the runtime's remaining stack headroom, or the same argument would
+  hash differently depending on how deep the caller was. The Node SDK MUST reproduce
+  the same wrapper shape, the same expansion order and the same depth cap (its
+  equivalents: class fields → `toJSON` → plain-object conversion → own enumerable
+  properties → marker).
 - **`<TypeName>` collapse caveat:** only a value none of those steps can describe (a C
-  extension object, a socket) collapses. Two instances of such a type still hash
+  extension object, a socket), or one nested past the depth cap, collapses. Two instances of such a type still hash
   identically, so a memoised result can replay for logically different arguments —
   therefore SDKs MUST log a warning naming the run, the step and the sorted collapsed
   type names (Python: `chowki_step_args_opaque`) rather than collapsing silently. A

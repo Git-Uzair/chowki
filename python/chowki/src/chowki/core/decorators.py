@@ -39,6 +39,10 @@ _UNSERIALIZABLE: Final = "__chowki_unserializable__"
 _MISSING: Final = object()
 _CYCLE: Final = "<cycle>"
 _OPAQUE: Final = object()
+#: How many nested values a step argument may hold before the next object stops being
+#: expanded. Deep enough that no realistic payload reaches it, shallow enough that the
+#: recursion behind the expansion cannot exhaust the interpreter stack.
+_MAX_DEPTH: Final = 100
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -115,8 +119,9 @@ def _signature(
 
     Complex values are expanded structurally by :func:`_expand` and hashed by value, so
     two instances of one class no longer share a hash. Only a value with no exposable
-    structure at all collapses to a ``<TypeName>`` marker; its type name is appended to
-    ``opaque`` so the caller can report which arguments lost their identity.
+    structure at all -- or one nested deeper than ``_MAX_DEPTH``, where expanding further
+    would cost the stack -- collapses to a ``<TypeName>`` marker; its type name is
+    appended to ``opaque`` so the caller can report which arguments lost their identity.
     """
 
     def _sanitize(val: object, seen: frozenset[int]) -> Any:
@@ -140,8 +145,19 @@ def _signature(
         if isinstance(val, (list, tuple)):
             seq = cast(Sequence[object], val)
             return [_sanitize(x, inner) for x in seq]
-        expanded = _expand(val)
         type_name = type(val).__name__
+        if len(seen) > _MAX_DEPTH:
+            # `seen` holds one id per level of the path, so its size is the current depth.
+            # A chain of objects each holding the next -- a linked list, an ORM row with a
+            # parent -- expands until the stack runs out, and a RecursionError raised
+            # while *describing* an argument kills a step that would have run fine. The
+            # cut is made on the argument's own depth rather than by catching
+            # RecursionError, because the stack left at this point depends on how deep the
+            # caller was when it called the step, and a resume key that moves with the
+            # call site is worse than one that collapses predictably.
+            opaque.append(type_name)
+            return f"<{type_name}>"
+        expanded = _expand(val)
         if expanded is _OPAQUE:
             opaque.append(type_name)
             return f"<{type_name}>"

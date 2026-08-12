@@ -54,7 +54,7 @@ matrix in sync.
 |---|---|---|---|---|
 | Step interceptor (`step`) | Wraps sync/async functions; records inputs/outputs, memoises completed work, snapshots state after success (`snapshot` opt-out), per-step `retries` override, `idempotent` opt-out, `name` override. Plain call outside a run = passthrough. | 07 §4 | ✅ | ⬜ |
 | Step identity | `"{name}#{per-run call ordinal}"`; ordinals reset every (re-)execution so replays reproduce ids. Rename/reorder hazard documented. | 07 §4 | ✅ | ⬜ |
-| Args-hash | Canonical content hash of sanitized `{name, args, kwargs}`; NFC keys, total-ordered sets, structural expansion of Structs/dataclasses/models/objects, `<TypeName>` marker + warning only for values with no structure, cycle markers, non-finite-float markers. | 07 §4 | ✅ | ⬜ |
+| Args-hash | Canonical content hash of sanitized `{name, args, kwargs}`; NFC keys, total-ordered sets, structural expansion of Structs/dataclasses/models/objects, `<TypeName>` marker + warning only for values with no structure or nested past the depth cap, cycle markers, non-finite-float markers. | 07 §4 | ✅ | ⬜ |
 | Memoisation | Only COMPLETED + equal args-hash + replayable result short-circuits; non-encodable results store a diagnostic marker and re-run. Changed args on same id → warn + re-execute. | 07 §4 | ✅ | ⬜ |
 | Idempotency claims | Atomic claim of `HMAC(resume_secret, run_id\|step_id\|args_hash)` before first side effect; payload-reuse with different args-hash is a hard error. | 07 §5 | ✅ | ⬜ |
 | Failure recovery matrix | FAILED + matching args → retry on re-invocation; RUNNING record / claim-without-record → refuse (fate unknown), error names the escape hatches. | 07 §5 | ✅ | ⬜ |
