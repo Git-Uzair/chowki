@@ -1404,6 +1404,9 @@ def _executor_id() -> tuple[int, int]:
 ## Task 8 — CHANGELOG, catalog sweep, and full verification
 
 **Status:** COMPLETED
+**Failed Verify Cycles:** 1
+**Attempt Ledger:**
+- attempt 1: write CHANGELOG, update plan status, run ci_local.py -> VERDICT FAIL (DISCREPANCY: CHANGELOG.md claimed secret arguments unconditionally replay as placeholders, but redaction is best-effort per redactor rules; wording must reflect best-effort redaction)
 **Difficulty:** EASY
 **Depends on:** Tasks 1-7.
 **Goal:** the release notes tell an upgrader what changed under them, and the whole gate
