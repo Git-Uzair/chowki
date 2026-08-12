@@ -10,6 +10,13 @@ jobs:
   pypi-publish:
     name: Build and publish Python SDK
     runs-on: ubuntu-latest
+    # Must match the "Environment name" on the PyPI Trusted Publisher, or the OIDC
+    # exchange is rejected. It is also where a deployment protection rule (required
+    # reviewer / wait timer) attaches — the only thing standing between an accidental
+    # tag push and a version number that can never be reused.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/chowki
     permissions:
       id-token: write # Mandatory for OIDC authentication with PyPI
       contents: read

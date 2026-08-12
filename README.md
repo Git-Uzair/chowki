@@ -15,7 +15,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml/badge.svg)](https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml)
 
-`chowki` (Hindi *चौकी* — a checkpost, a place where things are stopped and inspected) is an
+`chowki` (Urdu *چوکی* — a checkpost, a place where things are stopped and inspected) is an
 in-process control plane for LLM agents: durable state, human approval gates, secret
 redaction, and runaway-loop guardrails, added to agent code you have already written.
 

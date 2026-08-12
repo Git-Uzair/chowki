@@ -16,7 +16,7 @@
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://pypi.org/project/chowki/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`chowki` (Hindi *चौकी* — a checkpost, a place where things are stopped and inspected) is an
+`chowki` (Urdu *چوکی* — a checkpost, a place where things are stopped and inspected) is an
 in-process control plane for LLM agents. It adds durable state, approval gates, secret
 redaction, and runaway-loop guardrails to agent code you have already written — as
 decorators, with no server, no worker pool, and no sidecar.
