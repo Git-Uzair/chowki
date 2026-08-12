@@ -210,8 +210,8 @@ def test_guard_rejects_an_empty_dist(tmp_path: Path) -> None:
         find_artifacts(empty)
 
 
-@pytest.fixture
-def _offline_pypi(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture(name="_offline_pypi")
+def offline_pypi(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the already-published set so these tests do not depend on live PyPI.
 
     Without this, `test_guard_accepts_a_correct_release` starts failing the moment its
