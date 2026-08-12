@@ -151,8 +151,16 @@ def test_console_gateway_writes_the_token_and_actions(capsys: pytest.CaptureFixt
 
 
 def test_console_gateway_cli_hint_formatting(
-    capsys: pytest.CaptureFixture[str], tmp_path: pytest.TempPathFactory
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: pytest.TempPathFactory,
+    split_command: Callable[[str], list[str]],
 ) -> None:
+    """The prefix flags are chosen from the engine and the registry, not hardcoded.
+
+    Compared as argv, never as a substring: `<above>` is shell-metacharacter bait, so
+    `shlex.join` quotes it on POSIX while `list2cmdline` leaves it bare on Windows.
+    Both render the same command; only the tokens are portable.
+    """
     from pathlib import Path
 
     from chowki.config import configure, reset_engine
@@ -176,7 +184,15 @@ def test_console_gateway_cli_hint_formatting(
         )
     )
     out = capsys.readouterr().out
-    assert "To resume via CLI: chowki resume run-def --token <above> --decision APPROVE" in out
+    assert split_command(_hint_after("To resume via CLI:", out)) == [
+        "chowki",
+        "resume",
+        "run-def",
+        "--token",
+        "<above>",
+        "--decision",
+        "APPROVE",
+    ]
 
     # Non-default DB and registered module -> chowki --db <path> -m <module> resume ...
     custom_db = Path(str(tmp_path)) / "custom_test.db"
@@ -202,11 +218,19 @@ def test_console_gateway_cli_hint_formatting(
         )
     )
     out2 = capsys.readouterr().out
-    expected_hint = (
-        f"To resume via CLI: chowki --db {custom_db} -m my_mod.workflows resume run-custom"
-        " --token <above> --decision APPROVE"
-    )
-    assert expected_hint in out2
+    assert split_command(_hint_after("To resume via CLI:", out2)) == [
+        "chowki",
+        "--db",
+        str(custom_db),
+        "-m",
+        "my_mod.workflows",
+        "resume",
+        "run-custom",
+        "--token",
+        "<above>",
+        "--decision",
+        "APPROVE",
+    ]
 
     reset_engine()
     clear_registry()
@@ -324,7 +348,10 @@ def test_console_gateway_hint_names_the_script_for_main_module_workflows(
 
 
 def test_console_gateway_hint_creates_no_default_database(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    split_command: Callable[[str], list[str]],
 ) -> None:
     """Formatting a hint must not install a default engine nor open a database."""
     from chowki.config import reset_engine
@@ -345,5 +372,13 @@ def test_console_gateway_hint_creates_no_default_database(
         )
     )
     out = capsys.readouterr().out
-    assert "To resume via CLI: chowki resume run-nodb --token <above> --decision APPROVE" in out
+    assert split_command(_hint_after("To resume via CLI:", out)) == [
+        "chowki",
+        "resume",
+        "run-nodb",
+        "--token",
+        "<above>",
+        "--decision",
+        "APPROVE",
+    ]
     assert not (tmp_path / ".chowki").exists()
