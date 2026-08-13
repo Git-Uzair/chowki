@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Decimals, and ordinary objects (via `__dict__`) are now expanded structurally before
   hashing. Two different instances of one class previously produced the same `args_hash`,
   so a step could return another call's memoised result. Values with no exposable
-  structure or nested deeper than 100 levels collapse to `<TypeName>` and log
+  structure or objects nested deeper than ~50 levels collapse to `<TypeName>` and log
   `chowki_step_args_opaque`.
 - **Workflow arguments are persisted and replayed.** The first call's arguments are
   stored (redacted) on the run record as `RunRecord.inputs` and replayed by `resume()`,
