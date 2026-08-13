@@ -1,13 +1,13 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <div align="center">
-  <samp>
-&nbsp;&nbsp;&nbsp;██████╗██╗&nbsp;&nbsp;██╗&nbsp;██████╗&nbsp;██╗&nbsp;&nbsp;&nbsp;&nbsp;██╗██╗&nbsp;&nbsp;██╗██╗<br/>
-&nbsp;&nbsp;██╔════╝██║&nbsp;&nbsp;██║██╔═══██╗██║&nbsp;&nbsp;&nbsp;&nbsp;██║██║&nbsp;██╔╝██║<br/>
-&nbsp;&nbsp;██║&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;███████║██║&nbsp;&nbsp;&nbsp;██║██║&nbsp;█╗&nbsp;██║█████╔╝&nbsp;██║<br/>
-&nbsp;&nbsp;██║&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;██╔══██║██║&nbsp;&nbsp;&nbsp;██║██║███╗██║██╔═██╗&nbsp;██║<br/>
-&nbsp;&nbsp;╚██████╗██║&nbsp;&nbsp;██║╚██████╔╝╚███╔███╔╝██║&nbsp;&nbsp;██╗██║<br/>
-&nbsp;&nbsp;&nbsp;╚═════╝╚═╝&nbsp;&nbsp;╚═╝&nbsp;╚═════╝&nbsp;&nbsp;╚══╝╚══╝&nbsp;╚═╝&nbsp;&nbsp;╚═╝╚═╝
-  </samp>
+  <pre>
+   ██████╗██╗  ██╗ ██████╗ ██╗    ██╗██╗  ██╗██╗
+  ██╔════╝██║  ██║██╔═══██╗██║    ██║██║ ██╔╝██║
+  ██║     ███████║██║   ██║██║ █╗ ██║█████╔╝ ██║
+  ██║     ██╔══██║██║   ██║██║███╗██║██╔═██╗ ██║
+  ╚██████╗██║  ██║╚██████╔╝╚███╔███╔╝██║  ██╗██║
+   ╚═════╝╚═╝  ╚═╝ ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝
+  </pre>
 
   <h1>chowki</h1>
 
