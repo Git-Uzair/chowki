@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] - 2026-08-13
+
+### Fixed
+
+- **Step argument hashing no longer collapses complex objects.** msgspec Structs,
+  dataclasses, Pydantic models (via `model_dump`), enums, bytes, datetimes, UUIDs,
+  Decimals, and ordinary objects (via `__dict__`) are now expanded structurally before
+  hashing. Two different instances of one class previously produced the same `args_hash`,
+  so a step could return another call's memoised result. Values with no exposable
+  structure or nested deeper than 100 levels collapse to `<TypeName>` and log
+  `chowki_step_args_opaque`.
+- **Workflow arguments are persisted and replayed.** The first call's arguments are
+  stored (redacted) on the run record as `RunRecord.inputs` and replayed by `resume()`,
+  `aresume()` and `rerun()`. Workflows with required parameters are resumable, and a
+  defaulted parameter no longer silently rebinds its default on resume.
+- **Concurrent step entry inside one run raises `ChowkiConcurrencyError`** instead of
+  interleaving ordinals and corrupting the RFC 6902 snapshot chain. Bypasses anomaly
+  breaker retries.
+
+### Changed
+
+- **`args_hash` values change for steps that take complex arguments.** A run that is
+  in flight across this upgrade will miss the memo for those steps, log
+  `chowki_step_args_changed`, and re-execute them — including their side effects. **Drain
+  or complete in-flight runs before upgrading.** Runs whose step arguments are primitives,
+  dicts, lists, sets, or tuples are unaffected.
+- Workflow arguments are redacted (best-effort, per the redactor's key-name, pattern,
+  and entropy rules) before they are persisted. A recognized secret passed as a
+  workflow argument replays as its `[REDACTED:...]` placeholder;
+  `chowki_workflow_args_redacted` is logged when that happens. Tuples replay as lists.
+- PyPI metadata: new `description`, searchable `keywords`, and AI/recovery/security
+  Trove classifiers.
+- `scripts/check_layout.py` allowlists `README.md`, `python/chowki/README.md`,
+  `docs/comparison.md`, and `POSITIONING.md` for competitor terminology.
+
+### Added
+
+- `chowki.ChowkiConcurrencyError` in the public API surface.
+
 ## [0.1.0] - 2026-08-11
 
 ### Added
