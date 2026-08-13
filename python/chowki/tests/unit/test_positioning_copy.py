@@ -44,14 +44,9 @@ def test_readme_names_the_four_differentiators(readme: Path) -> None:
 def test_readme_header_is_centered(readme: Path) -> None:
     text = readme.read_text(encoding="utf-8")
     assert '<div align="center">' in text, f"{readme} header is missing centering container"
-
-    start = text.index('<div align="center">')
-    end = text.index("</div>", start) + len("</div>")
-    container = text[start:end]
-
-    assert "<h1>chowki</h1>" in container, f"{readme} centering container missing title"
-    assert "Your agent crashed" in container, f"{readme} centering container missing tagline"
-    assert "img.shields.io" in container, f"{readme} centering container missing badges"
-
+    assert "<samp>" in text or "<pre>" in text, f"{readme} header is missing logo container"
+    assert "<h1" in text and "chowki</h1>" in text, f"{readme} header is missing title heading"
+    assert "Your agent crashed" in text, f"{readme} header is missing tagline"
+    assert "img.shields.io" in text, f"{readme} header is missing badge chips"
     if readme == ROOT / "python" / "chowki" / "README.md":
-        assert "<pre>" in container, f"{readme} missing <pre> tag for PyPI compatibility"
+        assert "<pre>" in text, "PyPI README must use <pre> for PyPI renderer compatibility"

@@ -9,7 +9,7 @@
 &nbsp;&nbsp;&nbsp;╚═════╝╚═╝&nbsp;&nbsp;╚═╝&nbsp;╚═════╝&nbsp;&nbsp;╚══╝╚══╝&nbsp;╚═╝&nbsp;&nbsp;╚═╝╚═╝
   </samp>
 
-  <h1>chowki</h1>
+  <h1 align="center">chowki</h1>
 
   <p><b>Your agent crashed on step 9 of 10. chowki makes step 10 the only thing that runs again.</b></p>
 
