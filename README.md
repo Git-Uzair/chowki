@@ -1,5 +1,5 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<p align="center">
+<div align="center">
   <samp>
 &nbsp;&nbsp;&nbsp;██████╗██╗&nbsp;&nbsp;██╗&nbsp;██████╗&nbsp;██╗&nbsp;&nbsp;&nbsp;&nbsp;██╗██╗&nbsp;&nbsp;██╗██╗<br/>
 &nbsp;&nbsp;██╔════╝██║&nbsp;&nbsp;██║██╔═══██╗██║&nbsp;&nbsp;&nbsp;&nbsp;██║██║&nbsp;██╔╝██║<br/>
@@ -8,18 +8,18 @@
 &nbsp;&nbsp;╚██████╗██║&nbsp;&nbsp;██║╚██████╔╝╚███╔███╔╝██║&nbsp;&nbsp;██╗██║<br/>
 &nbsp;&nbsp;&nbsp;╚═════╝╚═╝&nbsp;&nbsp;╚═╝&nbsp;╚═════╝&nbsp;&nbsp;╚══╝╚══╝&nbsp;╚═╝&nbsp;&nbsp;╚═╝╚═╝
   </samp>
-</p>
 
-<p align="center">
-  <b>Your agent crashed on step 9 of 10. chowki makes step 10 the only thing that runs again.</b>
-</p>
+  <h1>chowki</h1>
 
-<p align="center">
-  <a href="https://pypi.org/project/chowki/"><img src="https://img.shields.io/pypi/v/chowki.svg" alt="PyPI"></a>
-  <a href="https://pypi.org/project/chowki/"><img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg" alt="Python"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml"><img src="https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-</p>
+  <p><b>Your agent crashed on step 9 of 10. chowki makes step 10 the only thing that runs again.</b></p>
+
+  <p>
+    <a href="https://pypi.org/project/chowki/"><img src="https://img.shields.io/pypi/v/chowki.svg" alt="PyPI"></a>
+    <a href="https://pypi.org/project/chowki/"><img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg" alt="Python"></a>
+    <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+    <a href="https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml"><img src="https://github.com/Git-Uzair/chowki/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  </p>
+</div>
 
 > **State savers restore *state*. chowki memoizes *step results* — so on resume, the LLM calls and API requests that already succeeded do not happen again.**
 

@@ -38,3 +38,9 @@ def test_readme_names_the_four_differentiators(readme: Path) -> None:
     lowered = readme.read_text(encoding="utf-8").lower()
     for claim in ("determinism tax", "hmac", "redaction", "budget"):
         assert claim in lowered, f"{readme} no longer mentions {claim!r}"
+
+
+@pytest.mark.parametrize("readme", READMES, ids=lambda p: str(p.name))
+def test_readme_header_is_centered(readme: Path) -> None:
+    text = readme.read_text(encoding="utf-8")
+    assert '<div align="center">' in text, f"{readme} header is missing centering container"
