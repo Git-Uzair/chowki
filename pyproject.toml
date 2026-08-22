@@ -12,7 +12,7 @@ dev = [
     "hypothesis>=6.110.0",
     "ruff>=0.6.0",
     "pyright>=1.1.380",
-    "mypy>=1.11.0",
+    "mypy>=2.3.1",
 ]
 
 [tool.ruff]
